@@ -6,12 +6,13 @@ from app.rag.pipeline import RAGPipeline
 from app.rag.retriever import Retriever
 from app.rag.vector_store import VectorStore
 from app.services.document_service import DocumentService
-
+from app.services.query_service import QueryService
 
 @dataclass
 class ApplicationServices:
     rag_pipeline: RAGPipeline
     document_service: DocumentService
+    query_service: QueryService
 
 
 def create_application_services() -> ApplicationServices:
@@ -41,7 +42,13 @@ def create_application_services() -> ApplicationServices:
         vector_store=vector_store,
     )
 
+    query_service = QueryService(
+    rag_pipeline=rag_pipeline,
+    vector_store=vector_store,
+)
+
     return ApplicationServices(
         rag_pipeline=rag_pipeline,
         document_service=document_service,
+        query_service=query_service
     )
