@@ -47,6 +47,32 @@ FinResearch AI supports a complete document-to-answer workflow:
 * Automated pytest test suite
 * FastAPI Swagger documentation
 
+## Project Status
+
+| Capability | Status |
+|---|---|
+| Multi-document indexing | ✅ Completed |
+| Entity-aware metadata filtering | ✅ Completed |
+| Duplicate document replacement | ✅ Completed |
+| Ambiguous query detection | ✅ Completed |
+| Grounded generation | ✅ Completed |
+| Citation validation and repair | ✅ Completed |
+| GitHub Actions CI | ✅ Completed |
+
+Current focus: retrieval quality evaluation and optimization.
+
+## Roadmap
+
+- [ ] Retrieval evaluation with Hit@1, Hit@3, Hit@5, and MRR
+- [ ] Improved financial-document chunking
+- [ ] Hybrid retrieval and reranking
+- [ ] Multilingual retrieval
+- [ ] Structured LLM outputs
+- [ ] SQL / Python analysis tools
+- [ ] LangGraph agent workflows
+- [ ] React frontend
+- [ ] Docker and deployment
+
 ## Architecture
 
 ```mermaid
