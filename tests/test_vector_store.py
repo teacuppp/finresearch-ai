@@ -257,4 +257,69 @@ def test_reindex_replaces_old_document(tmp_path):
 
 
 
+#测试当前有哪些 ticker 已被索引
+def test_list_tickers(tmp_path):
+    store = VectorStore(
+        path=str(tmp_path / "chroma"),
+        collection_name="ticker_test",
+    )
+
+    chunks = [
+        DocumentChunk(
+            text="Apple revenue",
+            document="apple.pdf",
+            page=1,
+            chunk_index=0,
+            ticker="AAPL",
+        ),
+        DocumentChunk(
+            text="Microsoft revenue",
+            document="microsoft.pdf",
+            page=1,
+            chunk_index=0,
+            ticker="MSFT",
+        ),
+    ]
+
+    store.add_chunks(
+        chunks=chunks,
+        embeddings=[
+            [1.0, 0.0],
+            [0.0, 1.0],
+        ],
+    )
+
+    assert store.list_tickers() == {
+        "AAPL",
+        "MSFT",
+    }
+
+
+
+#防止旧数据里 ticker 缺失时报错
+def test_list_tickers_ignores_missing_ticker(tmp_path):
+    store = VectorStore(
+        path=str(tmp_path / "chroma"),
+        collection_name="ticker_missing_test",
+    )
+
+    chunks = [
+        DocumentChunk(
+            text="Document without ticker",
+            document="unknown.pdf",
+            page=1,
+            chunk_index=0,
+        )
+    ]
+
+    store.add_chunks(
+        chunks=chunks,
+        embeddings=[
+            [1.0, 0.0],
+        ],
+    )
+
+    assert store.list_tickers() == set()
+
+
 #   pytest tests/test_vector_store.py -v
