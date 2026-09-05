@@ -1,26 +1,53 @@
 from fastapi.testclient import TestClient
 
-from app.dependencies import get_rag_pipeline
+# from app.dependencies import get_rag_pipeline
+from app.dependencies import get_query_service
 from app.main import app
 from app.rag.models import RetrievedChunk
 from app.rag.pipeline import RAGResult
 from app.rag.validation import AnswerValidationError
+from app.services.query_service import (
+    QueryService,
+    AmbiguousQueryError,
+    )
 
 
-class FakeRAGPipeline:
+# class FakeRAGPipeline:
+#     def __init__(self):
+#         self.last_question = None
+#         self.last_top_k = None
+
+#     def ask(
+#         self,
+#         question: str,
+#         top_k: int = 5,
+#         where: dict | None = None,
+#     ) -> RAGResult:
+#         self.last_question = question
+#         self.last_top_k = top_k
+#         self.last_where = where
+
+class FakeQueryService:
     def __init__(self):
         self.last_question = None
         self.last_top_k = None
+        self.last_where = None
+        self.last_company = None
+        self.last_ticker = None
 
     def ask(
         self,
         question: str,
         top_k: int = 5,
         where: dict | None = None,
-    ) -> RAGResult:
+        company: str | None = None,
+        ticker: str | None = None,
+    ):
         self.last_question = question
         self.last_top_k = top_k
         self.last_where = where
+        self.last_company = company
+        self.last_ticker = ticker
 
         return RAGResult(
             answer=(
@@ -43,16 +70,26 @@ class FakeRAGPipeline:
         )
 
 
-fake_pipeline = FakeRAGPipeline()
+fake_pipeline =FakeQueryService()
 
 
+# def override_get_rag_pipeline():
+#     return fake_pipeline
+
+
+# app.dependency_overrides[
+#     get_rag_pipeline
+# ] = override_get_rag_pipeline
+
+
+#把测试里的依赖覆盖从 get_rag_pipeline 改成 
+# get_query_service，所有测试就会重新亮起绿灯。 ✅
 def override_get_rag_pipeline():
     return fake_pipeline
 
-
 app.dependency_overrides[
-    get_rag_pipeline
-] = override_get_rag_pipeline
+    get_query_service
+] = lambda : fake_pipeline
 
 
 client = TestClient(app)
@@ -168,24 +205,43 @@ def test_ask_question_rejects_large_top_k():
 #             "Missing citation"
 #         )
 
-class FailingRAGPipeline:
-    def ask(
-        self,
-        question: str,
-        top_k: int = 5,
-        where: dict | None = None,
-    ):
-        raise AnswerValidationError(
-            "Missing citation"
-        )
+# class FailingRAGPipeline:
+#     def ask(
+#         self,
+#         question: str,
+#         top_k: int = 5,
+#         where: dict | None = None,
+#     ):
+#         raise AnswerValidationError(
+#             "Missing citation"
+#         )
 
+
+#company: str | None = None,
+        # ticker: str | None = None,增加
+class FailingQueryService:
+    def ask(self, question: str, top_k: int = 5, where: dict | None = None, company: str | None = None,   # 新增
+        ticker: str | None = None,    # 新增
+        ):
+        raise AnswerValidationError("Missing citation")
 
 def test_rag_api_handles_generation_validation_error():
     def override_failure():
-        return FailingRAGPipeline()
+        return FailingQueryService()
+
+    app.dependency_overrides[get_query_service] = override_failure
+
+    # ... 其余保持不变
+
+    # 测试结束后恢复
+    app.dependency_overrides[get_query_service] = lambda : fake_pipeline
+
+def test_rag_api_handles_generation_validation_error():
+    def override_failure():
+        return FailingQueryService()
 
     app.dependency_overrides[
-        get_rag_pipeline
+        get_query_service
     ] = override_failure
 
     response = client.post(
@@ -208,8 +264,8 @@ def test_rag_api_handles_generation_validation_error():
     }
 
     app.dependency_overrides[
-        get_rag_pipeline
-    ] = override_get_rag_pipeline
+        get_query_service
+    ] = lambda : fake_pipeline
 
 
 #增加 API test：
@@ -243,8 +299,55 @@ def test_ask_question_builds_metadata_filter():
 
 
     app.dependency_overrides[
-        get_rag_pipeline
-    ] = override_get_rag_pipeline
-    
+        get_query_service
+    ] = lambda : fake_pipeline
+
+#增加 ambiguity API test
+class AmbiguousQueryService:
+    def ask(
+        self,
+        question: str,
+        top_k: int = 5,
+        where: dict | None = None,
+        company: str | None = None,
+        ticker: str | None = None,
+    ):
+        raise AmbiguousQueryError(
+            "The query is ambiguous. "
+            "Please specify a company or ticker."
+        )
+
+
+def test_rag_api_returns_400_for_ambiguous_query():
+    def override_ambiguous():
+        return AmbiguousQueryService()
+
+    app.dependency_overrides[
+        get_query_service
+    ] = override_ambiguous
+
+    try:
+        response = client.post(
+            "/rag/ask",
+            json={
+                "question": "What was total revenue in 2025?",
+                "top_k": 5,
+            },
+        )
+
+        assert response.status_code == 400
+
+        assert response.json() == {
+            "detail": (
+                "The query is ambiguous. "
+                "Please specify a company or ticker."
+            )
+        }
+
+    finally:
+        app.dependency_overrides[
+            get_query_service
+        ] = lambda : fake_pipeline
+
 
 #。  pytest tests/test_rag_api.py -v

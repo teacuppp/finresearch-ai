@@ -10,6 +10,13 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import get_rag_pipeline
 from app.rag.pipeline import RAGPipeline
+from app.dependencies import get_query_service
+from app.services.query_service import (
+    AmbiguousQueryError,
+    QueryService,
+)
+
+
 from app.api.filters import build_metadata_filter
 
 
@@ -61,25 +68,32 @@ class AskResponse(BaseModel):
 )
 def ask_question(
     request: AskRequest,
-    pipeline: Annotated[
-        RAGPipeline,
-        Depends(get_rag_pipeline),
+    query_service: Annotated[
+        QueryService,
+        Depends(get_query_service),
     ],
 ):
-    try:
-        
-        where = build_metadata_filter(
-            company=request.company,
-            ticker=request.ticker,
-            fiscal_year=request.fiscal_year,
-            document_type=request.document_type,
-        )
+    where = build_metadata_filter(
+        company=request.company,
+        ticker=request.ticker,
+        fiscal_year=request.fiscal_year,
+        document_type=request.document_type,
+    )
 
-        result = pipeline.ask(
+    try:
+        result = query_service.ask(
             question=request.question,
             top_k=request.top_k,
             where=where,
+            company=request.company,
+            ticker=request.ticker,
         )
+
+    except AmbiguousQueryError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
     except AnswerValidationError as exc:
         raise HTTPException(
