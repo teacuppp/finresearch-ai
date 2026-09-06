@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 
-
 @dataclass
 class RelevantSource:
+    document: str
     page: int
     chunk_index: int
 
