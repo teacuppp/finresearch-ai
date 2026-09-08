@@ -5,7 +5,9 @@ from dataclasses import dataclass
 class RelevantSource:
     document: str
     page: int
-    chunk_index: int
+    row_terms: list[str]
+    preceding_terms: list[str]
+    preceding_line_window: int = 8
 
 
 @dataclass

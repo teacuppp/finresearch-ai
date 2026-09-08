@@ -8,38 +8,15 @@
     "relevant_sources": [
       {
         "document": "nasdaq-aapl-2025-10K-251437791.pdf",
-        "page": 28,
-        "chunk_index": 3
-      },
-      {
-        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
-        "page": 29,
-        "chunk_index": 1
-      },
-      {
-        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
         "page": 35,
-        "chunk_index": 1
-      },
-      {
-        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
-        "page": 42,
-        "chunk_index": 1
-      },
-      {
-        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
-        "page": 53,
-        "chunk_index": 2
-      },
-      {
-        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
-        "page": 54,
-        "chunk_index": 0
-      },
-      {
-        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
-        "page": 54,
-        "chunk_index": 1
+        "row_terms": [
+          "Total net sales",
+          "416,161"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 10
       }
     ]
   },
@@ -53,17 +30,38 @@
       {
         "document": "nasdaq-aapl-2025-10K-251437791.pdf",
         "page": 29,
-        "chunk_index": 0
+        "row_terms": [
+          "Services",
+          "109,158"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 10
       },
       {
         "document": "nasdaq-aapl-2025-10K-251437791.pdf",
         "page": 35,
-        "chunk_index": 0
+        "row_terms": [
+          "Services",
+          "109,158"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 8
       },
       {
         "document": "nasdaq-aapl-2025-10K-251437791.pdf",
         "page": 42,
-        "chunk_index": 0
+        "row_terms": [
+          "Services",
+          "109,158"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 10
       }
     ]
   },
@@ -77,12 +75,26 @@
       {
         "document": "nasdaq-msft-2025-10K-251167157.pdf",
         "page": 40,
-        "chunk_index": 1
+        "row_terms": [
+          "Revenue",
+          "281,724"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 5
       },
       {
         "document": "nasdaq-msft-2025-10K-251167157.pdf",
         "page": 52,
-        "chunk_index": 0
+        "row_terms": [
+          "Total revenue",
+          "281,724"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 10
       }
     ]
   },
@@ -95,13 +107,27 @@
     "relevant_sources": [
       {
         "document": "nasdaq-msft-2025-10K-251167157.pdf",
-        "page": 41,
-        "chunk_index": 3
+        "page": 40,
+        "row_terms": [
+          "Operating income",
+          "128,528"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 10
       },
       {
         "document": "nasdaq-msft-2025-10K-251167157.pdf",
-        "page": 40,
-        "chunk_index": 2
+        "page": 41,
+        "row_terms": [
+          "Operating income",
+          "128,528"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 10
       }
     ]
   }
