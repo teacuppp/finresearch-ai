@@ -1,19 +1,31 @@
+from pathlib import Path
+
+from app.evaluation.benchmark import (
+    load_retrieval_benchmark,
+)
+from app.evaluation.retrieval_metrics import (
+    find_relevant_ranks,
+    hit_at_k,
+    mean,
+    reciprocal_rank,
+)
 from app.rag.embeddings import EmbeddingModel
 from app.rag.retriever import Retriever
 from app.rag.vector_store import VectorStore
 
 
-QUERIES = [
-    "What was Apple's total revenue in 2025?",
-    "What was Apple's net income in 2025?",
-    "How much revenue did Apple generate from services in 2025?",
-    "How much revenue did Apple generate from products in 2025?",
-    "What were Apple's operating cash flows in 2025?",
-    "What were Apple's research and development expenses in 2025?",
-]
+BENCHMARK_PATH = Path(
+    "evaluation/retrieval_benchmark.json"
+)
+
+RETRIEVAL_DEPTH = 20
 
 
 def main():
+    examples = load_retrieval_benchmark(
+        BENCHMARK_PATH
+    )
+
     embedding_model = EmbeddingModel()
 
     vector_store = VectorStore(
@@ -26,28 +38,135 @@ def main():
         vector_store=vector_store,
     )
 
-    for query in QUERIES:
-        print("\n" + "=" * 100)
-        print(f"QUERY: {query}")
-        print("=" * 100)
+    hit_1_scores = []
+    hit_3_scores = []
+    hit_5_scores = []
+    reciprocal_ranks = []
+
+    print(
+        "\n"
+        + "=" * 100
+    )
+    print("Retrieval Benchmark")
+    print("=" * 100)
+
+    for example in examples:
+        where = {
+            "$and": [
+                {
+                    "ticker": {
+                        "$eq": example.ticker
+                    }
+                },
+                {
+                    "fiscal_year": {
+                        "$eq": example.fiscal_year
+                    }
+                },
+            ]
+        }
 
         results = retriever.retrieve(
-            query=query,
-            top_k=5,
+            query=example.question,
+            top_k=RETRIEVAL_DEPTH,
+            where=where,
         )
 
-        for rank, result in enumerate(
-            results,
-            start=1,
-        ):
-            print(f"\nRank #{rank}")
-            print(f"Page: {result.page}")
-            print(f"Chunk: {result.chunk_index}")
-            print(f"Distance: {result.distance:.4f}")
+        relevant_ranks = find_relevant_ranks(
+            results=results,
+            relevant_sources=example.relevant_sources,
+        )
 
-            preview = result.text[:700].replace("\n", " ")
+        hit_1 = hit_at_k(
+            relevant_ranks,
+            1,
+        )
 
-            print(f"Text: {preview}")
+        hit_3 = hit_at_k(
+            relevant_ranks,
+            3,
+        )
+
+        hit_5 = hit_at_k(
+            relevant_ranks,
+            5,
+        )
+
+        rr = reciprocal_rank(
+            relevant_ranks
+        )
+
+        hit_1_scores.append(hit_1)
+        hit_3_scores.append(hit_3)
+        hit_5_scores.append(hit_5)
+        reciprocal_ranks.append(rr)
+
+        print(
+            "\n"
+            + "-" * 100
+        )
+
+        print(f"ID: {example.id}")
+        print(
+            f"Question: {example.question}"
+        )
+        print(
+            f"Ticker: {example.ticker}"
+        )
+
+        print(
+            "Relevant ranks:",
+            relevant_ranks
+            if relevant_ranks
+            else "None in Top 20",
+        )
+
+        print(
+            f"Hit@1: {hit_1:.0f}"
+        )
+
+        print(
+            f"Hit@3: {hit_3:.0f}"
+        )
+
+        print(
+            f"Hit@5: {hit_5:.0f}"
+        )
+
+        print(
+            f"RR@20: {rr:.4f}"
+        )
+
+    print(
+        "\n"
+        + "=" * 100
+    )
+    print("Aggregate Results")
+    print("=" * 100)
+
+    print(
+        f"Queries: {len(examples)}"
+    )
+
+    print(
+        f"Hit@1:  "
+        f"{mean(hit_1_scores):.4f}"
+    )
+
+    print(
+        f"Hit@3:  "
+        f"{mean(hit_3_scores):.4f}"
+    )
+
+    print(
+        f"Hit@5:  "
+        f"{mean(hit_5_scores):.4f}"
+    )
+
+    print(
+        f"MRR@20: "
+        f"{mean(reciprocal_ranks):.4f}"
+    )
 
 
 if __name__ == "__main__":
