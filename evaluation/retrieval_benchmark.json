@@ -1,0 +1,108 @@
+[
+  {
+    "id": "aapl_revenue_2025",
+    "question": "What was Apple's total revenue in 2025?",
+    "ticker": "AAPL",
+    "fiscal_year": 2025,
+    "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+    "relevant_sources": [
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 28,
+        "chunk_index": 3
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 29,
+        "chunk_index": 1
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 35,
+        "chunk_index": 1
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 42,
+        "chunk_index": 1
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 53,
+        "chunk_index": 2
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 54,
+        "chunk_index": 0
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 54,
+        "chunk_index": 1
+      }
+    ]
+  },
+  {
+    "id": "aapl_services_revenue_2025",
+    "question": "How much revenue did Apple generate from services in 2025?",
+    "ticker": "AAPL",
+    "fiscal_year": 2025,
+    "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+    "relevant_sources": [
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 29,
+        "chunk_index": 0
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 35,
+        "chunk_index": 0
+      },
+      {
+        "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+        "page": 42,
+        "chunk_index": 0
+      }
+    ]
+  },
+  {
+    "id": "msft_revenue_2025",
+    "question": "What was Microsoft's total revenue in 2025?",
+    "ticker": "MSFT",
+    "fiscal_year": 2025,
+    "document": "nasdaq-msft-2025-10K-251167157.pdf",
+    "relevant_sources": [
+      {
+        "document": "nasdaq-msft-2025-10K-251167157.pdf",
+        "page": 40,
+        "chunk_index": 1
+      },
+      {
+        "document": "nasdaq-msft-2025-10K-251167157.pdf",
+        "page": 52,
+        "chunk_index": 0
+      }
+    ]
+  },
+  {
+    "id": "msft_operating_income_2025",
+    "question": "What was Microsoft's operating income in 2025?",
+    "ticker": "MSFT",
+    "fiscal_year": 2025,
+    "document": "nasdaq-msft-2025-10K-251167157.pdf",
+    "relevant_sources": [
+      {
+        "document": "nasdaq-msft-2025-10K-251167157.pdf",
+        "page": 41,
+        "chunk_index": 3
+      },
+      {
+        "document": "nasdaq-msft-2025-10K-251167157.pdf",
+        "page": 40,
+        "chunk_index": 2
+      }
+    ]
+  }
+]
