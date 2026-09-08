@@ -24,6 +24,11 @@ def mean(values: list[float]) -> float:
 
     return sum(values) / len(values)
 
+
+
+# 把 RetrievedChunk 转成 relevant rank
+# 在 evaluation layer 增加：
+
 def find_relevant_ranks(
     results,
     relevant_sources,
