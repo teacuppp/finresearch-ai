@@ -1,14 +1,11 @@
+from app.evaluation.models import RelevantSource
 from app.evaluation.retrieval_metrics import (
+    find_relevant_ranks,
     hit_at_k,
     mean,
     reciprocal_rank,
-    find_relevant_ranks
 )
-
-
-from app.evaluation.models import RelevantSource
 from app.rag.models import RetrievedChunk
-
 
 
 def test_hit_at_k():
@@ -33,8 +30,6 @@ def test_mean():
     assert mean([1.0, 0.5, 0.0]) == 0.5
     assert mean([]) == 0.0
 
-
-# 补2个 find_relevant_ranks() 单测
 
 def test_find_relevant_ranks():
     results = [
@@ -80,8 +75,6 @@ def test_find_relevant_ranks():
     )
 
     assert ranks == [2, 3]
-
-
 
 
 def test_find_relevant_ranks_returns_empty_when_no_match():
