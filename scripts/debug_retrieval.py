@@ -1,26 +1,111 @@
 from pathlib import Path
 
+# from app.evaluation.retrieval_metrics import (
+#     get_evidence_span,
+# )
 from app.rag.embeddings import EmbeddingModel
 from app.rag.retriever import Retriever
 from app.rag.vector_store import VectorStore
 
 
-# QUESTION = "What was Apple's total revenue in 2025?"
- 
-# QUESTION = "What was Microsoft's total revenue in 2025?"
-# EXPECTED_TERMS = [
-#     "MSFT",
-#     281,724,
-#     "2025",
-# ]
-
-QUESTION = "What was Microsoft's operating income in 2025?"
-EXPECTED_TEXT = "128,528"
-TICKET = "MSFT"
 # QUESTION = (
 #     "How much revenue did Apple generate "
 #     "from services in 2025?"
 # )
+
+# TICKER = "AAPL"
+
+# REQUIRED_TERMS = [
+#     "Services",
+#     "109,158",
+#     "2025",
+# ]
+
+
+# QUESTION = (
+#     "What was Microsoft's total revenue "
+#     "in 2025?"
+# )
+
+# TICKER = "MSFT"
+
+# REQUIRED_TERMS = [
+#     "Revenue",
+#     "281,724",
+#     "2025",
+# ]
+
+# QUESTION = (
+#     "What was Apple's total revenue in 2025?"
+# )
+
+# TICKER = "AAPL"
+
+# TARGET_RANKS = {
+#     13,
+#     14,
+# }
+
+
+QUESTION = (
+    "What was Microsoft's operating income in 2025?"
+)
+
+TICKER = "MSFT"
+
+TARGET_RANKS = {
+    1,
+    2,
+}
+
+
+def _print_numbered_lines(
+    text: str,
+) -> None:
+    lines = [
+        line
+        for line in text.splitlines()
+        if line.strip()
+    ]
+
+    for index, line in enumerate(
+        lines,
+        start=1,
+    ):
+        print(
+            f"{index:02d}: {line}"
+        )
+
+def _normalize_text(
+    text: str,
+) -> str:
+    return " ".join(
+        text.casefold().split()
+    )
+
+
+def _find_term_positions(
+    text: str,
+    terms: list[str],
+) -> dict[str, int]:
+    normalized_text = _normalize_text(
+        text
+    )
+
+    positions = {}
+
+    for term in terms:
+        normalized_term = _normalize_text(
+            term
+        )
+
+        positions[term] = (
+            normalized_text.find(
+                normalized_term
+            )
+        )
+
+    return positions
 
 
 def main():
@@ -50,7 +135,7 @@ def main():
         "$and": [
             {
                 "ticker": {
-                    "$eq": TICKET
+                    "$eq": TICKER
                 }
             },
             {
@@ -71,14 +156,31 @@ def main():
         results,
         start=1,
     ):
+        if rank not in TARGET_RANKS:
+            continue
+        
+        # positions = _find_term_positions(
+        #     result.text,
+        #     REQUIRED_TERMS,
+        # )
+
+        # span = get_evidence_span(
+        #     result.text,
+        #     REQUIRED_TERMS,
+        # )
+
         print(
             "\n"
             + "=" * 100
         )
 
         print(f"Rank: {rank}")
-        print(f"Document: {result.document}")
-        print(f"Page: {result.page}")
+        print(
+            f"Document: {result.document}"
+        )
+        print(
+            f"Page: {result.page}"
+        )
         print(
             f"Chunk: {result.chunk_index}"
         )
@@ -86,13 +188,24 @@ def main():
             f"Distance: {result.distance:.6f}"
         )
 
-        print(
-            "Contains "+EXPECTED_TEXT+":",
-            EXPECTED_TEXT in result.text,
-        )
+        # print(
+        #     f"Required terms: "
+        #     f"{REQUIRED_TERMS}"
+        # )
+
+        # print(
+        #     f"Term positions: "
+        #     f"{positions}"
+        # )
+
+        # print(
+        #     f"Evidence span: {span}"
+        # )
 
         print("-" * 100)
-        print(result.text)
+        _print_numbered_lines(
+            result.text
+        )
 
 
 if __name__ == "__main__":

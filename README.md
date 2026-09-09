@@ -144,6 +144,25 @@ Run the retrieval benchmark with:
 python -m scripts.evaluate_retrieval
 ```
 
+### Retrieval Chunking Experiments
+
+| Strategy | Hit@1 | Hit@3 | Hit@5 | MRR@20 |
+|---|---:|---:|---:|---:|
+| Fixed-size | 0.2500 | 0.2500 | 0.2500 | 0.2692 |
+| Boundary-aware | 0.2500 | 0.2500 | 0.2500 | 0.2500 |
+| Line + table-header aware | 0.0000 | 0.2500 | 1.0000 | 0.2458 |
+
+The line-aware, table-header-preserving strategy increased
+Hit@5 from 0.25 to 1.00, meaning all benchmark questions
+retrieved self-contained answer evidence within the top five
+candidates.
+
+However, MRR did not improve because relevant chunks were
+typically ranked between positions 3 and 5.
+
+This shifted the primary bottleneck from evidence completeness
+to candidate ranking.
+
 ## Architecture
 
 ```mermaid

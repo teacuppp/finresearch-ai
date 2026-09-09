@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -19,9 +20,10 @@ def test_load_retrieval_benchmark(
         json.dumps(
             [
                 {
-                    "id": "aapl_revenue_2025",
+                    "id": "aapl_services_2025",
                     "question": (
-                        "What was Apple's total revenue in 2025?"
+                        "How much revenue did Apple "
+                        "generate from services in 2025?"
                     ),
                     "ticker": "AAPL",
                     "fiscal_year": 2025,
@@ -29,7 +31,14 @@ def test_load_retrieval_benchmark(
                         {
                             "document": "apple.pdf",
                             "page": 35,
-                            "chunk_index": 1,
+                            "row_terms": [
+                                "Services",
+                                "109,158",
+                            ],
+                            "preceding_terms": [
+                                "2025",
+                            ],
+                            "preceding_line_window": 8,
                         }
                     ],
                 }
@@ -48,7 +57,7 @@ def test_load_retrieval_benchmark(
 
     assert (
         example.id
-        == "aapl_revenue_2025"
+        == "aapl_services_2025"
     )
 
     assert example.ticker == "AAPL"
@@ -62,7 +71,67 @@ def test_load_retrieval_benchmark(
 
     assert source.document == "apple.pdf"
     assert source.page == 35
-    assert source.chunk_index == 1
+
+    assert source.row_terms == [
+        "Services",
+        "109,158",
+    ]
+
+    assert source.preceding_terms == [
+        "2025",
+    ]
+
+    assert (
+        source.preceding_line_window
+        == 8
+    )
+
+
+def test_default_preceding_line_window(
+    tmp_path,
+):
+    benchmark_path = (
+        tmp_path
+        / "benchmark.json"
+    )
+
+    data = [
+        {
+            "id": "default_window",
+            "question": "Question",
+            "ticker": "AAPL",
+            "fiscal_year": 2025,
+            "relevant_sources": [
+                {
+                    "document": "apple.pdf",
+                    "page": 1,
+                    "row_terms": [
+                        "Revenue",
+                        "100",
+                    ],
+                    "preceding_terms": [
+                        "2025",
+                    ],
+                }
+            ],
+        }
+    ]
+
+    benchmark_path.write_text(
+        json.dumps(data),
+        encoding="utf-8",
+    )
+
+    examples = load_retrieval_benchmark(
+        benchmark_path
+    )
+
+    assert (
+        examples[0]
+        .relevant_sources[0]
+        .preceding_line_window
+        == 8
+    )
 
 
 def test_rejects_duplicate_benchmark_ids(
@@ -83,7 +152,13 @@ def test_rejects_duplicate_benchmark_ids(
                 {
                     "document": "apple.pdf",
                     "page": 1,
-                    "chunk_index": 0,
+                    "row_terms": [
+                        "Revenue",
+                        "100",
+                    ],
+                    "preceding_terms": [
+                        "2025",
+                    ],
                 }
             ],
         },
@@ -96,7 +171,13 @@ def test_rejects_duplicate_benchmark_ids(
                 {
                     "document": "microsoft.pdf",
                     "page": 1,
-                    "chunk_index": 0,
+                    "row_terms": [
+                        "Revenue",
+                        "200",
+                    ],
+                    "preceding_terms": [
+                        "2025",
+                    ],
                 }
             ],
         },
@@ -114,6 +195,7 @@ def test_rejects_duplicate_benchmark_ids(
         load_retrieval_benchmark(
             benchmark_path
         )
+
 
 def test_rejects_empty_relevant_sources(
     tmp_path,
@@ -147,7 +229,93 @@ def test_rejects_empty_relevant_sources(
         )
 
 
-from pathlib import Path
+def test_rejects_empty_row_terms(
+    tmp_path,
+):
+    benchmark_path = (
+        tmp_path
+        / "benchmark.json"
+    )
+
+    data = [
+        {
+            "id": "empty_row_terms",
+            "question": "Question",
+            "ticker": "AAPL",
+            "fiscal_year": 2025,
+            "relevant_sources": [
+                {
+                    "document": "apple.pdf",
+                    "page": 35,
+                    "row_terms": [],
+                    "preceding_terms": [
+                        "2025",
+                    ],
+                }
+            ],
+        }
+    ]
+
+    benchmark_path.write_text(
+        json.dumps(data),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Relevant source has no row terms",
+    ):
+        load_retrieval_benchmark(
+            benchmark_path
+        )
+
+
+def test_rejects_negative_preceding_line_window(
+    tmp_path,
+):
+    benchmark_path = (
+        tmp_path
+        / "benchmark.json"
+    )
+
+    data = [
+        {
+            "id": "negative_window",
+            "question": "Question",
+            "ticker": "AAPL",
+            "fiscal_year": 2025,
+            "relevant_sources": [
+                {
+                    "document": "apple.pdf",
+                    "page": 35,
+                    "row_terms": [
+                        "Revenue",
+                        "100",
+                    ],
+                    "preceding_terms": [
+                        "2025",
+                    ],
+                    "preceding_line_window": -1,
+                }
+            ],
+        }
+    ]
+
+    benchmark_path.write_text(
+        json.dumps(data),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "preceding_line_window "
+            "must not be negative"
+        ),
+    ):
+        load_retrieval_benchmark(
+            benchmark_path
+        )
 
 
 def test_real_retrieval_benchmark_loads():

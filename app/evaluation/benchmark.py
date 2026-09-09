@@ -36,20 +36,56 @@ def load_retrieval_benchmark(
 
         seen_ids.add(example_id)
 
-        if not item["relevant_sources"]:
+        relevant_source_data = (
+            item["relevant_sources"]
+        )
+
+        if not relevant_source_data:
             raise ValueError(
                 f"Benchmark example has no relevant sources: "
                 f"{example_id}"
             )
 
-        relevant_sources = [
-            RelevantSource(
-                document=source["document"],
-                page=source["page"],
-                chunk_index=source["chunk_index"],
+        relevant_sources: list[
+            RelevantSource
+        ] = []
+
+        for source in relevant_source_data:
+            row_terms = source["row_terms"]
+
+            if not row_terms:
+                raise ValueError(
+                    f"Relevant source has no row terms: "
+                    f"{example_id}"
+                )
+
+            preceding_terms = source.get(
+                "preceding_terms",
+                [],
             )
-            for source in item["relevant_sources"]
-        ]
+
+            preceding_line_window = source.get(
+                "preceding_line_window",
+                8,
+            )
+
+            if preceding_line_window < 0:
+                raise ValueError(
+                    f"preceding_line_window must not "
+                    f"be negative: {example_id}"
+                )
+
+            relevant_sources.append(
+                RelevantSource(
+                    document=source["document"],
+                    page=source["page"],
+                    row_terms=row_terms,
+                    preceding_terms=preceding_terms,
+                    preceding_line_window=(
+                        preceding_line_window
+                    ),
+                )
+            )
 
         examples.append(
             RetrievalExample(
@@ -57,7 +93,9 @@ def load_retrieval_benchmark(
                 question=item["question"],
                 ticker=item["ticker"],
                 fiscal_year=item["fiscal_year"],
-                relevant_sources=relevant_sources,
+                relevant_sources=(
+                    relevant_sources
+                ),
             )
         )
 
