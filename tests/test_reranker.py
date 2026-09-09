@@ -60,3 +60,62 @@ def test_reranker_orders_results_by_score():
         "third",
         "first",
     ]
+
+
+def test_reranker_respects_top_k():
+    reranker = Reranker.__new__(
+        Reranker
+    )
+
+    reranker.model = FakeCrossEncoder()
+
+    results = [
+        RetrievedChunk(
+            text="first",
+            document="test.pdf",
+            page=1,
+            chunk_index=0,
+            distance=0.1,
+        ),
+        RetrievedChunk(
+            text="second",
+            document="test.pdf",
+            page=2,
+            chunk_index=0,
+            distance=0.2,
+        ),
+        RetrievedChunk(
+            text="third",
+            document="test.pdf",
+            page=3,
+            chunk_index=0,
+            distance=0.3,
+        ),
+    ]
+
+    reranked = reranker.rerank(
+        query="test query",
+        results=results,
+        top_k=2,
+    )
+
+    assert [
+        result.text
+        for result in reranked
+    ] == [
+        "second",
+        "third",
+    ]
+
+
+def test_reranker_returns_empty_results():
+    reranker = Reranker.__new__(
+        Reranker
+    )
+
+    reranker.model = FakeCrossEncoder()
+
+    assert reranker.rerank(
+        query="test query",
+        results=[],
+    ) == []
