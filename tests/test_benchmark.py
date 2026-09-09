@@ -327,7 +327,7 @@ def test_real_retrieval_benchmark_loads():
         benchmark_path
     )
 
-    assert len(examples) == 4
+    assert len(examples) == 8
 
     assert {
         example.id
@@ -337,4 +337,8 @@ def test_real_retrieval_benchmark_loads():
         "aapl_services_revenue_2025",
         "msft_revenue_2025",
         "msft_operating_income_2025",
+        "aapl_net_income_2025",
+        "aapl_operating_income_2025",
+        "msft_gross_margin_2025",
+        "msft_net_income_2025",
     }

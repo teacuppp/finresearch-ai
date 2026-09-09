@@ -6,8 +6,14 @@ from pathlib import Path
 from app.rag.embeddings import EmbeddingModel
 from app.rag.retriever import Retriever
 from app.rag.vector_store import VectorStore
+#.  python -m scripts.debug_retrieval
+QUESTION = (
+    "What was Microsoft's net income in 2025?"
+)
 
+TICKER = "MSFT"
 
+NUMBER = "101,832"
 # QUESTION = (
 #     "How much revenue did Apple generate "
 #     "from services in 2025?"
@@ -47,16 +53,44 @@ from app.rag.vector_store import VectorStore
 # }
 
 
-QUESTION = (
-    "What was Microsoft's operating income in 2025?"
-)
+# QUESTION = (
+#     "What was Microsoft's operating income in 2025?"
+# )
 
-TICKER = "MSFT"
+# TICKER = "MSFT"
 
-TARGET_RANKS = {
-    1,
-    2,
-}
+# TARGET_RANKS = {
+#     1,
+#     2,
+# }
+
+# QUESTION = (
+#     "What was Apple's total revenue in 2025?"
+# )
+
+# TICKER = "AAPL"
+
+TARGET_RANKS = set(range(1, 21))
+
+
+# QUESTION = (
+#     "What was Microsoft's total revenue in 2025?"
+# )
+
+# TICKER = "MSFT"
+
+
+# QUESTION = (
+#     "How much revenue did Apple generate from services in 2025?"
+# )
+
+# TICKER = "AAPL"
+
+# QUESTION = (
+#     "What was Microsoft's operating income in 2025?"
+# )
+
+# TICKER = "MSFT"
 
 
 def _print_numbered_lines(
@@ -156,9 +190,26 @@ def main():
         results,
         start=1,
     ):
-        if rank not in TARGET_RANKS:
-            continue
-        
+        # if rank not in TARGET_RANKS:
+        #     continue
+
+        # if "281,724" not in result.text:
+        #   continue
+
+        if NUMBER not in result.text:
+                continue
+
+        # if "416,161" not in result.text:
+        #   continue
+
+        # if "109,158" not in result.text:
+        #   continue
+
+        # if "128,528" not in result.text:
+        #     continue
+
+        # if "416,161" not in result.text:
+        #     continue
         # positions = _find_term_positions(
         #     result.text,
         #     REQUIRED_TERMS,
