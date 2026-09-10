@@ -163,6 +163,25 @@ typically ranked between positions 3 and 5.
 This shifted the primary bottleneck from evidence completeness
 to candidate ranking.
 
+### 8-query retrieval benchmark
+
+Dense:
+Hit@1  = 0.3750
+Hit@3  = 0.6250
+Hit@5  = 1.0000
+MRR@20 = 0.5333
+
+Dense + CrossEncoder:
+Hit@1  = 0.5000
+Hit@3  = 1.0000
+Hit@5  = 1.0000
+MRR@20 = 0.7500
+
+Observed failure modes:
+- exact financial metric confusion
+- broad revenue semantic confusion
+- evidence year-binding limitations
+
 ## Architecture
 
 ```mermaid
