@@ -95,6 +95,18 @@
           "2025"
         ],
         "preceding_line_window": 10
+      },
+      {
+        "document": "nasdaq-msft-2025-10K-251167157.pdf",
+        "page": 87,
+        "row_terms": [
+          "Total",
+          "281,724"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 12
       }
     ]
   },
