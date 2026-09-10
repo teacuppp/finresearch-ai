@@ -95,6 +95,18 @@
           "2025"
         ],
         "preceding_line_window": 10
+      },
+      {
+        "document": "nasdaq-msft-2025-10K-251167157.pdf",
+        "page": 87,
+        "row_terms": [
+          "Total",
+          "281,724"
+        ],
+        "preceding_terms": [
+          "2025"
+        ],
+        "preceding_line_window": 12
       }
     ]
   },
@@ -130,5 +142,137 @@
         "preceding_line_window": 10
       }
     ]
-  }
+  },
+  {
+  "id": "aapl_net_income_2025",
+  "question": "What was Apple's net income in 2025?",
+  "ticker": "AAPL",
+  "fiscal_year": 2025,
+  "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+  "relevant_sources": [
+    {
+      "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+      "page": 35,
+      "row_terms": [
+        "Net income",
+        "112,010"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 20
+    },
+    {
+      "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+      "page": 36,
+      "row_terms": [
+        "Net income",
+        "112,010"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 3
+    },
+    {
+      "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+      "page": 38,
+      "row_terms": [
+        "Net income",
+        "112,010"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 12
+    },
+    {
+      "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+      "page": 39,
+      "row_terms": [
+        "Net income",
+        "112,010"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 5
+    },
+    {
+      "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+      "page": 42,
+      "row_terms": [
+        "Net income",
+        "112,010"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 5
+    }
+  ]
+},
+{
+  "id": "aapl_operating_income_2025",
+  "question": "What was Apple's operating income in 2025?",
+  "ticker": "AAPL",
+  "fiscal_year": 2025,
+  "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+  "relevant_sources": [
+    {
+      "document": "nasdaq-aapl-2025-10K-251437791.pdf",
+      "page": 35,
+      "row_terms": [
+        "Operating income",
+        "133,050"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 15
+    }
+  ]
+},
+{
+  "id": "msft_gross_margin_2025",
+  "question": "What was Microsoft's gross margin in 2025?",
+  "ticker": "MSFT",
+  "fiscal_year": 2025,
+  "document": "nasdaq-msft-2025-10K-251167157.pdf",
+  "relevant_sources": [
+    {
+      "document": "nasdaq-msft-2025-10K-251167157.pdf",
+      "page": 40,
+      "row_terms": [
+        "Gross margin",
+        "193,893"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 5
+    }
+  ]
+},
+{
+  "id": "msft_net_income_2025",
+  "question": "What was Microsoft's net income in 2025?",
+  "ticker": "MSFT",
+  "fiscal_year": 2025,
+  "document": "nasdaq-msft-2025-10K-251167157.pdf",
+  "relevant_sources": [
+    {
+      "document": "nasdaq-msft-2025-10K-251167157.pdf",
+      "page": 40,
+      "row_terms": [
+        "Net income",
+        "101,832"
+      ],
+      "preceding_terms": [
+        "2025"
+      ],
+      "preceding_line_window": 6
+    }
+  ]
+}
 ]
