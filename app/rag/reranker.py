@@ -15,6 +15,26 @@ class Reranker:
             model_name
         )
 
+    def score(
+    self,
+    query: str,
+    results: list[RetrievedChunk],
+    ):
+        if not results:
+            return []
+
+        pairs = [
+            (
+                query,
+                result.text,
+            )
+            for result in results
+        ]
+
+        return self.model.predict(
+            pairs
+        )
+
     def rerank(
         self,
         query: str,
@@ -32,8 +52,9 @@ class Reranker:
             for result in results
         ]
 
-        scores = self.model.predict(
-            pairs
+        scores = self.score(
+            query=query,
+            results=results,
         )
 
         ranked_results = [
