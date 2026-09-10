@@ -67,6 +67,7 @@ FinResearch AI supports a complete document-to-answer workflow:
 | Retrieval benchmark             | ✅ Completed |
 | Hit@K and MRR evaluation        | ✅ Completed |
 | GitHub Actions CI               | ✅ Completed |
+| Cross-encoder reranking         | ✅ Completed |
 
 Current focus: **retrieval quality optimization, especially financial-table chunking and evidence completeness.**
 
@@ -165,6 +166,9 @@ to candidate ranking.
 
 ### 8-query retrieval benchmark
 
+Benchmark size:
+4 → 8 manually labeled queries
+
 Dense:
 Hit@1  = 0.3750
 Hit@3  = 0.6250
@@ -181,6 +185,11 @@ Observed failure modes:
 - exact financial metric confusion
 - broad revenue semantic confusion
 - evidence year-binding limitations
+
+Cross-encoder reranking improved MRR@20 from
+0.5333 to 0.7500 while preserving Hit@5 = 1.0000.
+
+Hit@3 improved from 0.6250 to 1.0000.
 
 ## Architecture
 
@@ -523,10 +532,10 @@ This allows chunking, embeddings, hybrid retrieval, and reranking strategies to 
 * [x] Duplicate document replacement
 * [x] Ambiguous query detection
 * [x] Retrieval evaluation with Hit@1, Hit@3, Hit@5, and MRR@20
+* [x] Structure-aware financial-document chunking
+* [x] Reranking
 * [ ] Expand the retrieval benchmark dataset
-* [ ] Structure-aware financial-document chunking
 * [ ] Hybrid retrieval
-* [ ] Reranking
 * [ ] Multilingual financial retrieval
 * [ ] Structured LLM outputs
 * [ ] Financial market data tools
