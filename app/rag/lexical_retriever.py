@@ -57,12 +57,12 @@ class LexicalRetriever:
             query
         )
 
+        if not query_tokens:
+            return []
+
         scores = bm25.get_scores(
             query_tokens
         )
-
-        # if not any(score > 0 for score in scores):
-        #     return []
 
         ranked = sorted(
             zip(
@@ -75,9 +75,9 @@ class LexicalRetriever:
 
         results = []
 
-        for chunk, score in ranked[:top_k]:
-            # if score <= 0:
-            #     continue
+        for chunk, score in ranked:
+            if score <= 0:
+                continue
 
             results.append(
                 RetrievedChunk(
@@ -94,5 +94,8 @@ class LexicalRetriever:
                     ),
                 )
             )
+
+            if len(results) >= top_k:
+                break
 
         return results
