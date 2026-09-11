@@ -131,3 +131,43 @@ class VectorStore:
         return tickers
 
 
+def get_chunks(
+    self,
+    where: dict | None = None,
+) -> list[DocumentChunk]:
+    get_kwargs = {
+        "include": [
+            "documents",
+            "metadatas",
+        ],
+    }
+
+    if where is not None:
+        get_kwargs["where"] = where
+
+    results = self.collection.get(
+        **get_kwargs
+    )
+
+    chunks = []
+
+    for document, metadata in zip(
+        results["documents"],
+        results["metadatas"],
+    ):
+        chunks.append(
+            DocumentChunk(
+                text=document,
+                document=metadata["document"],
+                page=metadata["page"],
+                chunk_index=metadata["chunk_index"],
+                company=metadata.get("company"),
+                ticker=metadata.get("ticker"),
+                fiscal_year=metadata.get("fiscal_year"),
+                document_type=metadata.get(
+                    "document_type"
+                ),
+            )
+        )
+
+    return chunks
