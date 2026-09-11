@@ -191,6 +191,37 @@ Cross-encoder reranking improved MRR@20 from
 
 Hit@3 improved from 0.6250 to 1.0000.
 
+### Hybrid Retrieval Experiments
+
+An additional BM25 lexical retriever was evaluated alongside
+dense retrieval using Reciprocal Rank Fusion (RRF).
+
+The final experiment compared five retrieval strategies over the
+same 8-query financial benchmark.
+
+| Strategy | Hit@1 | Hit@3 | Hit@5 | MRR@20 |
+|---|---:|---:|---:|---:|
+| Dense | 0.3750 | 0.6250 | 1.0000 | 0.5333 |
+| BM25 | 0.3750 | 0.5000 | 0.6250 | 0.4620 |
+| Hybrid RRF | 0.7500 | 0.8750 | 0.8750 | 0.8281 |
+| Dense + CrossEncoder | 0.5000 | 1.0000 | 1.0000 | 0.7500 |
+| Hybrid RRF + CrossEncoder | 0.5000 | 1.0000 | 1.0000 | 0.7292 |
+
+Hybrid RRF substantially improved early ranking quality, doubling
+Hit@1 relative to dense retrieval and increasing MRR@20 from
+0.5333 to 0.8281.
+
+However, one Apple total-revenue query regressed from Dense Rank 5
+to Hybrid Rank 8, reducing Hit@5 from 1.0000 to 0.8750.
+
+Dense retrieval followed by CrossEncoder reranking therefore remains
+the default production retrieval strategy because it preserves
+Hit@5 = 1.0000 and Hit@3 = 1.0000 across the current benchmark.
+
+Hybrid retrieval remains available as an experimental retrieval
+strategy for future benchmark expansion and domain-specific reranker
+experiments.
+
 ## Architecture
 
 ```mermaid

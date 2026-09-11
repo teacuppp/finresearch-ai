@@ -22,23 +22,39 @@ def _chunk_key(
 
 class HybridRetriever:
     def __init__(
-        self,
-        dense_retriever: Retriever,
-        lexical_retriever: LexicalRetriever,
-        rrf_k: int = DEFAULT_RRF_K,
+    self,
+    dense_retriever: Retriever,
+    lexical_retriever: LexicalRetriever,
+    rrf_k: int = DEFAULT_RRF_K,
+    dense_weight: float = 1.0,
+    lexical_weight: float = 1.0,
     ):
         if rrf_k <= 0:
             raise ValueError(
                 "rrf_k must be positive"
             )
 
+        if dense_weight <= 0:
+            raise ValueError(
+                "dense_weight must be positive"
+            )
+
+        if lexical_weight <= 0:
+            raise ValueError(
+                "lexical_weight must be positive"
+            )
+
         self.dense_retriever = (
             dense_retriever
         )
+
         self.lexical_retriever = (
             lexical_retriever
         )
+
         self.rrf_k = rrf_k
+        self.dense_weight = dense_weight
+        self.lexical_weight = lexical_weight
 
     def retrieve(
         self,
@@ -82,7 +98,7 @@ class HybridRetriever:
 
             scores[key] = (
                 scores.get(key, 0.0)
-                + 1.0
+                + self.dense_weight
                 / (
                     self.rrf_k
                     + rank
@@ -102,7 +118,7 @@ class HybridRetriever:
 
             scores[key] = (
                 scores.get(key, 0.0)
-                + 1.0
+                + self.lexical_weight
                 / (
                     self.rrf_k
                     + rank

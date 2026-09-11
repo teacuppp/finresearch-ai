@@ -366,3 +366,97 @@ def test_hybrid_retriever_returns_empty_for_nonpositive_candidate_k():
         )
         == []
     )
+
+def test_hybrid_retriever_applies_dense_weight():
+    shared = _chunk(
+        document="shared.pdf",
+        page=1,
+        chunk_index=0,
+    )
+
+    dense_only = _chunk(
+        document="dense.pdf",
+        page=1,
+        chunk_index=0,
+    )
+
+    lexical_only = _chunk(
+        document="lexical.pdf",
+        page=1,
+        chunk_index=0,
+    )
+
+    dense = FakeRetriever(
+        [
+            dense_only,
+            shared,
+        ]
+    )
+
+    lexical = FakeRetriever(
+        [
+            lexical_only,
+            shared,
+        ]
+    )
+
+    retriever = HybridRetriever(
+        dense_retriever=dense,
+        lexical_retriever=lexical,
+        dense_weight=2.0,
+        lexical_weight=1.0,
+    )
+
+    results = retriever.retrieve(
+        query="test",
+        top_k=3,
+        candidate_k=2,
+    )
+
+    assert results[0].document == (
+        "shared.pdf"
+    )
+
+    assert results[1].document == (
+        "dense.pdf"
+    )
+
+    assert results[2].document == (
+        "lexical.pdf"
+    )
+
+#再加参数校验
+def test_hybrid_retriever_rejects_nonpositive_weights():
+    dense = FakeRetriever(
+        []
+    )
+
+    lexical = FakeRetriever(
+        []
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "dense_weight "
+            "must be positive"
+        ),
+    ):
+        HybridRetriever(
+            dense_retriever=dense,
+            lexical_retriever=lexical,
+            dense_weight=0.0,
+        )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "lexical_weight "
+            "must be positive"
+        ),
+    ):
+        HybridRetriever(
+            dense_retriever=dense,
+            lexical_retriever=lexical,
+            lexical_weight=0.0,
+        )
