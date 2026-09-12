@@ -3,10 +3,16 @@ from dataclasses import dataclass
 from app.rag.embeddings import EmbeddingModel
 from app.rag.generator import AnswerGenerator
 from app.rag.pipeline import RAGPipeline
+from app.rag.reranker import Reranker
 from app.rag.retriever import Retriever
 from app.rag.vector_store import VectorStore
-from app.services.document_service import DocumentService
-from app.services.query_service import QueryService
+from app.services.document_service import (
+    DocumentService,
+)
+from app.services.query_service import (
+    QueryService,
+)
+
 
 @dataclass
 class ApplicationServices:
@@ -15,12 +21,16 @@ class ApplicationServices:
     query_service: QueryService
 
 
-def create_application_services() -> ApplicationServices:
+def create_application_services() -> (
+    ApplicationServices
+):
     embedding_model = EmbeddingModel()
 
     vector_store = VectorStore(
         path="data/chroma",
-        collection_name="financial_documents",
+        collection_name=(
+            "financial_documents"
+        ),
     )
 
     retriever = Retriever(
@@ -28,13 +38,17 @@ def create_application_services() -> ApplicationServices:
         vector_store=vector_store,
     )
 
+    reranker = Reranker()
+
     generator = AnswerGenerator(
         model="qwen3:4b",
     )
 
     rag_pipeline = RAGPipeline(
         retriever=retriever,
+        reranker=reranker,
         generator=generator,
+        retrieval_depth=20,
     )
 
     document_service = DocumentService(
@@ -43,12 +57,14 @@ def create_application_services() -> ApplicationServices:
     )
 
     query_service = QueryService(
-    rag_pipeline=rag_pipeline,
-    vector_store=vector_store,
-)
+        rag_pipeline=rag_pipeline,
+        vector_store=vector_store,
+    )
 
     return ApplicationServices(
         rag_pipeline=rag_pipeline,
-        document_service=document_service,
-        query_service=query_service
+        document_service=(
+            document_service
+        ),
+        query_service=query_service,
     )
