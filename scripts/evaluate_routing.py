@@ -1,5 +1,7 @@
-"""Run with `.venv/bin/python -m scripts.evaluate_routing` from the repo root."""
+"""Run the routing evaluator from the repository root."""
 
+import argparse
+from collections.abc import Sequence
 from pathlib import Path
 
 from app.agent.router import LLMQuestionRouter
@@ -18,6 +20,25 @@ BENCHMARK_PATH = Path(
 )
 
 
+def parse_args(
+    argv: Sequence[str] | None = None,
+) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate the question router.",
+    )
+    parser.add_argument(
+        "--benchmark",
+        type=Path,
+        default=BENCHMARK_PATH,
+        help=(
+            "routing benchmark JSON path "
+            "(default: evaluation/routing_benchmark.json)"
+        ),
+    )
+
+    return parser.parse_args(argv)
+
+
 def _print_misclassification(
     example: RoutingBenchmarkExample,
     predicted_route: Route,
@@ -29,9 +50,12 @@ def _print_misclassification(
     print(f"Predicted route: {predicted_route}")
 
 
-def main() -> None:
+def main(
+    argv: Sequence[str] | None = None,
+) -> None:
+    args = parse_args(argv)
     examples = load_routing_benchmark(
-        BENCHMARK_PATH
+        args.benchmark
     )
     router = LLMQuestionRouter()
     predicted_routes: list[Route] = []
