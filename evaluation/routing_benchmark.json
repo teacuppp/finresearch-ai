@@ -1,0 +1,218 @@
+[
+  {
+    "id": "sql_direct_apple_revenue_2025",
+    "question": "What was Apple's total revenue in fiscal 2025?",
+    "expected_route": "sql",
+    "category": "direct_metric_lookup"
+  },
+  {
+    "id": "sql_direct_msft_gross_margin_2024",
+    "question": "What gross margin did Microsoft report for fiscal 2024?",
+    "expected_route": "sql",
+    "category": "direct_metric_lookup"
+  },
+  {
+    "id": "sql_direct_apple_operating_income_2025",
+    "question": "Report Apple's operating income for fiscal 2025.",
+    "expected_route": "sql",
+    "category": "direct_metric_lookup"
+  },
+  {
+    "id": "sql_ticker_msft_net_income_2025",
+    "question": "For ticker MSFT, what was net income in 2025?",
+    "expected_route": "sql",
+    "category": "company_ticker_filtering"
+  },
+  {
+    "id": "sql_ticker_aapl_all_metrics_2024",
+    "question": "For AAPL in fiscal 2024, show revenue, operating income, net income, and gross margin.",
+    "expected_route": "sql",
+    "category": "company_ticker_filtering"
+  },
+  {
+    "id": "sql_fiscal_2025_company_revenue",
+    "question": "List each company's ticker and revenue for fiscal 2025.",
+    "expected_route": "sql",
+    "category": "fiscal_year_filtering"
+  },
+  {
+    "id": "sql_fiscal_2024_income_metrics",
+    "question": "For fiscal 2024, list operating income and net income for every company.",
+    "expected_route": "sql",
+    "category": "fiscal_year_filtering"
+  },
+  {
+    "id": "sql_compare_company_net_income_2025",
+    "question": "Compare Apple and Microsoft net income in fiscal 2025.",
+    "expected_route": "sql",
+    "category": "multi_company_comparison"
+  },
+  {
+    "id": "sql_compare_company_operating_income_2025",
+    "question": "Which company had higher operating income in 2025, Apple or Microsoft, and by how much?",
+    "expected_route": "sql",
+    "category": "multi_company_comparison"
+  },
+  {
+    "id": "sql_compare_apple_revenue_years",
+    "question": "Compare Apple's revenue in fiscal 2024 with fiscal 2025.",
+    "expected_route": "sql",
+    "category": "multi_year_comparison"
+  },
+  {
+    "id": "sql_compare_msft_operating_income_years",
+    "question": "Show Microsoft's operating income for each available fiscal year and identify the highest year.",
+    "expected_route": "sql",
+    "category": "multi_year_comparison"
+  },
+  {
+    "id": "sql_change_apple_revenue_amount",
+    "question": "How much did Apple's revenue change from fiscal 2024 to fiscal 2025?",
+    "expected_route": "sql",
+    "category": "arithmetic_change"
+  },
+  {
+    "id": "sql_change_msft_net_income_percent",
+    "question": "What was the percentage change in Microsoft's net income from 2024 to 2025?",
+    "expected_route": "sql",
+    "category": "arithmetic_change"
+  },
+  {
+    "id": "sql_difference_apple_revenue_operating_income",
+    "question": "Calculate the difference between Apple's 2025 revenue and operating income.",
+    "expected_route": "sql",
+    "category": "arithmetic_change"
+  },
+  {
+    "id": "sql_rank_companies_revenue_2025",
+    "question": "Rank all companies by fiscal 2025 revenue from highest to lowest.",
+    "expected_route": "sql",
+    "category": "ordering_ranking"
+  },
+  {
+    "id": "sql_rank_company_year_net_income",
+    "question": "Which company and fiscal year had the highest net income in the available data?",
+    "expected_route": "sql",
+    "category": "ordering_ranking"
+  },
+  {
+    "id": "sql_aggregate_combined_revenue_2025",
+    "question": "What was the combined 2025 revenue of Apple and Microsoft?",
+    "expected_route": "sql",
+    "category": "aggregation"
+  },
+  {
+    "id": "sql_aggregate_average_margin_by_year",
+    "question": "What was the average gross margin across companies for each fiscal year?",
+    "expected_route": "sql",
+    "category": "aggregation"
+  },
+  {
+    "id": "rag_risk_apple_material_risks",
+    "question": "What material risks did Apple disclose that could affect its future results?",
+    "expected_route": "rag",
+    "category": "risk_disclosures"
+  },
+  {
+    "id": "rag_risk_msft_cybersecurity",
+    "question": "How does Microsoft describe its cybersecurity risks in the annual filing?",
+    "expected_route": "rag",
+    "category": "risk_disclosures"
+  },
+  {
+    "id": "rag_risk_compare_supply_chain",
+    "question": "Compare the supply-chain dependency risks disclosed by Apple and Microsoft.",
+    "expected_route": "rag",
+    "category": "risk_disclosures"
+  },
+  {
+    "id": "rag_strategy_msft_ai",
+    "question": "How does Microsoft describe its AI strategy and related investment priorities?",
+    "expected_route": "rag",
+    "category": "strategy"
+  },
+  {
+    "id": "rag_strategy_apple_services",
+    "question": "What strategic priorities does Apple describe for expanding its Services ecosystem?",
+    "expected_route": "rag",
+    "category": "strategy"
+  },
+  {
+    "id": "rag_strategy_compare_growth",
+    "question": "Compare how Apple and Microsoft describe their strategies for growth beyond their core products.",
+    "expected_route": "rag",
+    "category": "strategy"
+  },
+  {
+    "id": "rag_commentary_apple_performance_2025",
+    "question": "What did Apple management say about the company's operating performance in 2025?",
+    "expected_route": "rag",
+    "category": "management_commentary"
+  },
+  {
+    "id": "rag_commentary_compare_operating_performance",
+    "question": "Compare Apple and Microsoft management's explanations for operating performance.",
+    "expected_route": "rag",
+    "category": "management_commentary"
+  },
+  {
+    "id": "rag_commentary_msft_demand",
+    "question": "How did Microsoft management characterize customer demand trends during fiscal 2025?",
+    "expected_route": "rag",
+    "category": "management_commentary"
+  },
+  {
+    "id": "rag_competition_apple_pressures",
+    "question": "What competitive pressures does Apple identify across its principal markets?",
+    "expected_route": "rag",
+    "category": "competitive_factors"
+  },
+  {
+    "id": "rag_competition_msft_cloud_ai",
+    "question": "How does Microsoft describe competition in the cloud and AI markets?",
+    "expected_route": "rag",
+    "category": "competitive_factors"
+  },
+  {
+    "id": "rag_explanation_apple_revenue_change",
+    "question": "Why did Apple's revenue change from fiscal 2024 to fiscal 2025?",
+    "expected_route": "rag",
+    "category": "qualitative_explanations"
+  },
+  {
+    "id": "rag_explanation_msft_margin_change",
+    "question": "What factors explain the change in Microsoft's gross margin between 2024 and 2025?",
+    "expected_route": "rag",
+    "category": "qualitative_explanations"
+  },
+  {
+    "id": "rag_explanation_apple_net_income_change",
+    "question": "According to the filing, why did Apple's net income differ from the prior year?",
+    "expected_route": "rag",
+    "category": "qualitative_explanations"
+  },
+  {
+    "id": "rag_driver_apple_services",
+    "question": "What factors affected Apple's Services business during fiscal 2025?",
+    "expected_route": "rag",
+    "category": "business_drivers"
+  },
+  {
+    "id": "rag_driver_msft_revenue_growth",
+    "question": "What business drivers did Microsoft identify for its revenue growth in 2025?",
+    "expected_route": "rag",
+    "category": "business_drivers"
+  },
+  {
+    "id": "rag_narrative_apple_manufacturing",
+    "question": "How does Apple describe its reliance on third-party manufacturing partners?",
+    "expected_route": "rag",
+    "category": "filing_narrative"
+  },
+  {
+    "id": "rag_narrative_msft_regulation",
+    "question": "What does Microsoft say about the regulatory environment affecting its business?",
+    "expected_route": "rag",
+    "category": "filing_narrative"
+  }
+]
