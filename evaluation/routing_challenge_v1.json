@@ -1,0 +1,146 @@
+[
+  {
+    "id": "challenge_ambiguous_apple_bottom_line_2025",
+    "question": "Give me the bottom line on Apple's fiscal 2025 results: revenue and net income.",
+    "expected_route": "sql",
+    "category": "ambiguous_surface_wording"
+  },
+  {
+    "id": "challenge_ambiguous_msft_finish_2024",
+    "question": "How did Microsoft finish fiscal 2024 on gross margin and operating income?",
+    "expected_route": "sql",
+    "category": "ambiguous_surface_wording"
+  },
+  {
+    "id": "challenge_ambiguous_apple_performance_shape",
+    "question": "What shaped Apple's overall performance during fiscal 2025?",
+    "expected_route": "rag",
+    "category": "ambiguous_surface_wording"
+  },
+  {
+    "id": "challenge_ambiguous_msft_results_forces",
+    "question": "How does Microsoft describe the forces behind its fiscal 2025 results?",
+    "expected_route": "rag",
+    "category": "ambiguous_surface_wording"
+  },
+  {
+    "id": "challenge_filing_apple_reported_figures",
+    "question": "In the figures presented in Apple's fiscal 2025 annual filing, what are revenue and net income?",
+    "expected_route": "sql",
+    "category": "filing_language_structured"
+  },
+  {
+    "id": "challenge_filing_msft_operating_income",
+    "question": "According to Microsoft's fiscal 2024 annual report, state the reported operating income.",
+    "expected_route": "sql",
+    "category": "filing_language_structured"
+  },
+  {
+    "id": "challenge_filing_apple_margin_discussion",
+    "question": "In Apple's fiscal 2025 filing, how does management account for the movement in gross margin?",
+    "expected_route": "rag",
+    "category": "filing_language_structured"
+  },
+  {
+    "id": "challenge_filing_msft_income_pressures",
+    "question": "What discussion does Microsoft's annual report provide about pressures on net income?",
+    "expected_route": "rag",
+    "category": "filing_language_structured"
+  },
+  {
+    "id": "challenge_metric_apple_income_side_by_side",
+    "question": "Put Apple's fiscal 2024 and 2025 net income figures side by side.",
+    "expected_route": "sql",
+    "category": "metric_and_number_cues"
+  },
+  {
+    "id": "challenge_metric_msft_revenue_income_ratio",
+    "question": "For Microsoft in fiscal 2025, what is revenue divided by operating income?",
+    "expected_route": "sql",
+    "category": "metric_and_number_cues"
+  },
+  {
+    "id": "challenge_metric_apple_net_income_conditions",
+    "question": "What conditions does Apple cite when discussing its 2025 net income?",
+    "expected_route": "rag",
+    "category": "metric_and_number_cues"
+  },
+  {
+    "id": "challenge_metric_msft_margin_interpretation",
+    "question": "How does Microsoft interpret the 2024-to-2025 movement in gross margin?",
+    "expected_route": "rag",
+    "category": "metric_and_number_cues"
+  },
+  {
+    "id": "challenge_quant_apple_operating_income_percent",
+    "question": "By what percentage did Apple's operating income move between fiscal 2024 and 2025?",
+    "expected_route": "sql",
+    "category": "quantitative_vs_explanatory"
+  },
+  {
+    "id": "challenge_quant_msft_revenue_gap",
+    "question": "How many million dollars separated Microsoft's 2024 revenue from its 2025 revenue?",
+    "expected_route": "sql",
+    "category": "quantitative_vs_explanatory"
+  },
+  {
+    "id": "challenge_explanatory_apple_operating_income",
+    "question": "Why did Apple's operating income move between fiscal 2024 and 2025?",
+    "expected_route": "rag",
+    "category": "quantitative_vs_explanatory"
+  },
+  {
+    "id": "challenge_explanatory_msft_revenue_growth",
+    "question": "Which business developments caused Microsoft's revenue growth in fiscal 2025?",
+    "expected_route": "rag",
+    "category": "quantitative_vs_explanatory"
+  },
+  {
+    "id": "challenge_paraphrase_aapl_top_line",
+    "question": "For AAPL, what amount sat on the top line in fiscal 2025?",
+    "expected_route": "sql",
+    "category": "keyword_light_paraphrase"
+  },
+  {
+    "id": "challenge_paraphrase_larger_bottom_line",
+    "question": "Which issuer posted the larger bottom line in fiscal 2024, AAPL or MSFT?",
+    "expected_route": "sql",
+    "category": "keyword_light_paraphrase"
+  },
+  {
+    "id": "challenge_paraphrase_apple_headwinds",
+    "question": "What headwinds does Apple say could keep it from meeting its objectives?",
+    "expected_route": "rag",
+    "category": "keyword_light_paraphrase"
+  },
+  {
+    "id": "challenge_paraphrase_msft_ai_spending",
+    "question": "What is Microsoft trying to accomplish with its AI spending?",
+    "expected_route": "rag",
+    "category": "keyword_light_paraphrase"
+  },
+  {
+    "id": "challenge_compare_company_revenue_gap",
+    "question": "Between Apple and Microsoft, who produced more revenue in fiscal 2025, and what was the gap?",
+    "expected_route": "sql",
+    "category": "comparative_intent"
+  },
+  {
+    "id": "challenge_compare_apple_margin_points",
+    "question": "Was Apple's gross margin higher in fiscal 2024 or 2025, and by how many percentage points?",
+    "expected_route": "sql",
+    "category": "comparative_intent"
+  },
+  {
+    "id": "challenge_compare_future_growth_forces",
+    "question": "Contrast how Apple and Microsoft characterize the forces affecting their future growth.",
+    "expected_route": "rag",
+    "category": "comparative_intent"
+  },
+  {
+    "id": "challenge_compare_competitive_pressure",
+    "question": "How do Apple and Microsoft differ in their accounts of competitive pressure?",
+    "expected_route": "rag",
+    "category": "comparative_intent"
+  }
+]

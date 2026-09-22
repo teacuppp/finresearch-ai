@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.documents import router as documents_router
+from app.api.agent import router as agent_router
 from app.services.rag_service import (
     create_application_services,
 )
@@ -16,12 +17,14 @@ async def lifespan(app: FastAPI):
     app.state.rag_pipeline = services.rag_pipeline
     app.state.document_service = services.document_service
     app.state.query_service = services.query_service
+    app.state.agent_service = services.agent_service
 
     yield
 
     app.state.rag_pipeline = None
     app.state.document_service = None
     app.state.query_service = None
+    app.state.agent_service = None
 
 app = FastAPI(
     title="FinResearch AI",
@@ -48,6 +51,7 @@ def health_check():
 
 app.include_router(documents_router)
 app.include_router(rag_router)
+app.include_router(agent_router)
 
 
 #    uvicorn app.main:app --reload

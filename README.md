@@ -2,15 +2,15 @@
 
 [![CI](https://github.com/teacuppp/finresearch-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/teacuppp/finresearch-ai/actions/workflows/ci.yml)
 
-**Entity-aware RAG platform for financial research.**
+**Agentic financial research over documents and local structured data.**
 
-FinResearch AI ingests financial reports such as 10-K filings, converts them into searchable vector representations, performs metadata-aware semantic retrieval, and generates grounded financial answers with source citations.
+FinResearch AI ingests financial reports such as 10-K filings, retrieves document evidence, and generates grounded answers with source citations. Its Agent v1 API can also route structured financial questions to a read-only local SQLite database.
 
-The project is built from first principles to keep the retrieval, indexing, grounding, and evaluation mechanics explicit and independently testable before introducing higher-level agent frameworks.
+Retrieval, indexing, grounding, and evaluation remain explicit and independently testable. LangGraph orchestrates the existing services above the deterministic RAG pipeline.
 
 ## Overview
 
-FinResearch AI supports a complete document-to-answer workflow:
+The document workflow is:
 
 1. Upload a financial PDF with structured metadata.
 2. Extract document text with PyMuPDF.
@@ -24,6 +24,8 @@ FinResearch AI supports a complete document-to-answer workflow:
 10. Validate citations and repair malformed LLM responses.
 11. Refuse unsupported questions when retrieved evidence is insufficient.
 12. Evaluate retrieval quality against a manually labeled benchmark.
+
+`POST /agent/ask` adds a router above this workflow: it selects document RAG or a read-only SQL query for each question. The existing `POST /rag/ask` endpoint remains available for direct RAG requests.
 
 ## Key Features
 
@@ -53,6 +55,11 @@ FinResearch AI supports a complete document-to-answer workflow:
 * Automated pytest test suite
 * GitHub Actions CI
 * FastAPI Swagger documentation
+* Typed LangGraph state and conditional RAG/SQL routing
+* Structured Qwen3:4b route selection
+* Read-only SQL generation and execution against local SQLite
+* Route-specific typed responses from `POST /agent/ask`
+* Labeled routing evaluation
 
 ## Project Status
 
@@ -68,8 +75,10 @@ FinResearch AI supports a complete document-to-answer workflow:
 | Hit@K and MRR evaluation        | ✅ Completed |
 | GitHub Actions CI               | ✅ Completed |
 | Cross-encoder reranking         | ✅ Completed |
+| Agent v1 RAG/SQL routing        | ✅ Completed |
+| Agent HTTP API                  | ✅ Completed |
 
-Current focus: **retrieval quality optimization, especially financial-table chunking and evidence completeness.**
+Current focus: **bounded SQL repair, with multi-step analysis and reporting later.** Retrieval quality remains measured separately against the labeled benchmark below.
 
 ## Retrieval Evaluation
 
@@ -222,102 +231,48 @@ Hybrid retrieval remains available as an experimental retrieval
 strategy for future benchmark expansion and domain-specific reranker
 experiments.
 
-## Architecture
+## Routing Evaluation
 
-```mermaid
-flowchart LR
-    A[Financial PDF] --> B[Document Upload API]
-    B --> C[PyMuPDF Extraction]
-    C --> D[Chunking + Metadata]
-    D --> E[Sentence Transformer]
-    E --> F[(ChromaDB)]
+The frozen Router v1 uses Qwen3:4b structured output to choose exactly one of two classes: `rag` or `sql`. Saved results for two curated, labeled sets are:
 
-    Q[User Question] --> G[Query Validation]
-    G --> H[Metadata Filter]
-    H --> I[Retriever]
-    F --> I
+| Evaluation set | Examples | SQL / RAG | Correct |
+| --- | ---: | ---: | ---: |
+| Initial routing benchmark | 36 | 18 / 18 | 36/36 |
+| Routing challenge v1 | 24 | 12 / 12 | 24/24 |
 
-    I --> J[Top-K Retrieved Chunks]
+Router v1 was **60/60 correct across the two curated labeled routing evaluation sets**. This is not a measurement of real-world routing accuracy.
 
-    J --> EV[Retrieval Evaluation]
-    EV --> EM[Hit@K + MRR]
+Run the evaluations with a local Ollama `qwen3:4b` model:
 
-    J --> K[Context Builder]
-    K --> L[Qwen3 via Ollama]
-    L --> M[Citation Validation]
-
-    M -->|Valid| N[Grounded Answer + Sources]
-    M -->|Invalid| O[Answer Repair]
-    O --> M
+```bash
+.venv/bin/python -m scripts.evaluate_routing
+.venv/bin/python -m scripts.evaluate_routing \
+  --benchmark evaluation/routing_challenge_v1.json
 ```
 
-## Example
+## Agent Architecture
 
-The same natural-language question can retrieve different financial evidence depending on metadata filters.
-
-### Microsoft
-
-Request:
-
-```json
-{
-  "question": "What was total revenue in 2025?",
-  "ticker": "MSFT",
-  "fiscal_year": 2025,
-  "top_k": 5
-}
+```text
+POST /agent/ask
+  → AgentService → compiled LangGraph → LLMQuestionRouter (Qwen3:4b)
+  → conditional routing
+      rag → QueryService → existing RAGPipeline
+          → dense candidate retrieval → CrossEncoder reranking
+          → grounded Qwen answer → validated source citations
+      sql → SQLGenerator → read-only SQLExecutor
+          → local SQLite financial_metrics database
 ```
 
-Example response:
+The API constructs the same metadata filter used by `/rag/ask`. The RAG branch passes the filter, `top_k`, company, and ticker through `AgentService` and the graph to `QueryService`. Unscoped RAG questions return HTTP 400 when multiple companies are indexed. The deterministic `RAGPipeline` still owns retrieval, reranking, context building, generation, and validation; LangGraph sits above it and does not reimplement those steps. PDF ingestion continues to use PyMuPDF, chunking, Sentence Transformers, and ChromaDB.
 
-```json
-{
-  "answer": "Microsoft reported total revenue of $281.724 billion in 2025. [Source 2]"
-}
-```
+### Agent v1 capabilities
 
-### Apple
-
-Request:
-
-```json
-{
-  "question": "What was total revenue in 2025?",
-  "ticker": "AAPL",
-  "fiscal_year": 2025,
-  "top_k": 5
-}
-```
-
-Example response:
-
-```json
-{
-  "answer": "Apple reported total net sales of $416.161 billion in fiscal year 2025. [Source 2]"
-}
-```
-
-This demonstrates entity-aware retrieval over a shared multi-document vector database.
-
-### Ambiguous Query
-
-When multiple companies are indexed, an unfiltered query such as:
-
-```json
-{
-  "question": "What was total revenue in 2025?"
-}
-```
-
-is rejected before retrieval and generation:
-
-```json
-{
-  "detail": "The query is ambiguous. Please specify a company or ticker."
-}
-```
-
-This prevents the system from silently mixing evidence from different companies.
+* Structured SQL generation and read-only SQLite execution
+* Typed LangGraph state and conditional SQL/RAG routing
+* Structured Qwen routing and labeled routing benchmarks
+* AgentService composition through the FastAPI lifespan
+* RAG query-option propagation and ambiguity protection for unscoped multi-company RAG queries
+* `POST /agent/ask` with route-specific typed API responses
 
 ## Tech Stack
 
@@ -332,6 +287,8 @@ This prevents the system from silently mixing evidence from different companies.
 | Local LLM                | Qwen3                                 |
 | Model runtime            | Ollama                                |
 | LLM client               | OpenAI-compatible Python SDK          |
+| Agent orchestration      | LangGraph                            |
+| Structured data backend  | Local SQLite                         |
 | Validation               | Pydantic + custom citation validation |
 | Retrieval evaluation     | Hit@K + MRR@20                        |
 | Testing                  | pytest                                |
@@ -370,7 +327,82 @@ curl -X POST "http://127.0.0.1:8000/documents/upload" \
   -F "document_type=10-K"
 ```
 
-### Ask a Financial Question
+### Agent: Ask a Financial Question
+
+```http
+POST /agent/ask
+```
+
+JSON request fields:
+
+| Field | Type | Use |
+| --- | --- | --- |
+| `question` | string | Required, nonblank; at most 1,000 characters |
+| `top_k` | integer | RAG result limit; defaults to 5 (1–20) |
+| `company` | string or null | RAG company scope and ambiguity check |
+| `ticker` | string or null | RAG ticker scope and ambiguity check |
+| `fiscal_year` | integer or null | RAG metadata filter |
+| `document_type` | string or null | RAG metadata filter |
+
+Illustrative RAG request for narrative evidence:
+
+```json
+{
+  "question": "How does Apple describe supply chain risks in its 2025 filing?",
+  "company": "Apple",
+  "ticker": "AAPL",
+  "fiscal_year": 2025,
+  "document_type": "10-K",
+  "top_k": 5
+}
+```
+
+RAG response shape, using the existing source fields:
+
+```json
+{
+  "route": "rag",
+  "answer": "Apple describes supply chain disruption as a risk. [Source 1]",
+  "sources": [
+    {
+      "document": "apple.pdf",
+      "page": 12,
+      "chunk_index": 3,
+      "distance": 0.2,
+      "company": "Apple",
+      "ticker": "AAPL",
+      "fiscal_year": 2025,
+      "document_type": "10-K"
+    }
+  ]
+}
+```
+
+Illustrative SQL request for a structured metric (using a value in the local demo database):
+
+```json
+{
+  "question": "What was Apple's revenue in fiscal 2025?"
+}
+```
+
+SQL response shape; generated SQL may vary:
+
+```json
+{
+  "route": "sql",
+  "generated_sql": "SELECT revenue_musd FROM financial_metrics WHERE ticker = 'AAPL' AND fiscal_year = 2025",
+  "sql_result": {
+    "columns": ["revenue_musd"],
+    "rows": [{"revenue_musd": 416161.0}],
+    "row_count": 1
+  }
+}
+```
+
+The SQL branch returns the executed query and rows; it does not generate a narrative answer. Metadata fields filter the RAG branch. For SQL questions, include required company and year information in `question`.
+
+### Direct RAG Endpoint
 
 ```http
 POST /rag/ask
@@ -422,7 +454,15 @@ ollama pull qwen3:4b
 
 Make sure the Ollama service is running.
 
-### 5. Start the API
+### 5. Initialize the local SQL demo database
+
+```bash
+python -m scripts.init_financial_db
+```
+
+This creates `data/financial_demo.db` with sample `financial_metrics` rows. Running the script again replaces that local demo database.
+
+### 6. Start the API
 
 ```bash
 uvicorn app.main:app --reload
@@ -438,39 +478,63 @@ On the first run, Sentence Transformers may download the embedding model from Hu
 
 ## Project Structure
 
+Selected implementation and evaluation files:
+
 ```text
 finresearch-ai/
 ├── app/
+│   ├── agent/
+│   │   ├── graph.py
+│   │   ├── router.py
+│   │   ├── schema.py
+│   │   ├── sql_executor.py
+│   │   ├── sql_generator.py
+│   │   └── state.py
 │   ├── api/
+│   │   ├── agent.py
 │   │   ├── documents.py
 │   │   ├── filters.py
 │   │   └── rag.py
 │   ├── evaluation/
-│   │   ├── __init__.py
 │   │   ├── benchmark.py
 │   │   ├── models.py
-│   │   └── retrieval_metrics.py
+│   │   ├── retrieval_metrics.py
+│   │   ├── routing_benchmark.py
+│   │   └── routing_metrics.py
 │   ├── rag/
 │   │   ├── context.py
 │   │   ├── embeddings.py
 │   │   ├── generator.py
+│   │   ├── hybrid_retriever.py
 │   │   ├── ingestion.py
+│   │   ├── lexical_retriever.py
 │   │   ├── models.py
 │   │   ├── pipeline.py
+│   │   ├── reranker.py
 │   │   ├── retriever.py
 │   │   ├── splitter.py
 │   │   ├── validation.py
 │   │   └── vector_store.py
 │   ├── services/
+│   │   ├── agent_service.py
+│   │   ├── document_service.py
+│   │   ├── query_service.py
+│   │   └── rag_service.py
 │   ├── dependencies.py
 │   └── main.py
 ├── evaluation/
-│   └── retrieval_benchmark.json
+│   ├── retrieval_benchmark.json
+│   ├── routing_benchmark.json
+│   ├── routing_baseline_v1.txt
+│   ├── routing_challenge_v1.json
+│   └── routing_challenge_v1_baseline.txt
 ├── scripts/
 │   ├── debug_retrieval.py
 │   ├── evaluate_retrieval.py
+│   ├── evaluate_routing.py
+│   ├── init_financial_db.py
 │   └── inspect_document_chunks.py
-├── tests/
+├── tests/                      # API, agent, RAG, SQL, and evaluation tests
 ├── requirements.txt
 ├── pytest.ini
 └── README.md
@@ -506,6 +570,10 @@ The tests cover:
 * benchmark loading and validation
 * retrieval evaluation metrics
 * FastAPI endpoints
+* agent graph, router, and AgentService behavior
+* read-only SQL generation and execution
+* route-specific agent API responses
+* routing benchmark loading and metrics
 
 GitHub Actions runs the test suite automatically for pushes and pull requests targeting `main`.
 
@@ -516,6 +584,8 @@ GitHub Actions runs the test suite automatically for pushes and pull requests ta
 The retrieval pipeline is implemented through separate ingestion, embedding, vector-store, retrieval, context-building, generation, and validation layers.
 
 This keeps the underlying RAG mechanics visible and independently testable.
+
+AgentService and LangGraph call the existing QueryService and RAGPipeline rather than duplicating RAG logic in graph nodes.
 
 ### Metadata-aware Retrieval
 
@@ -555,26 +625,26 @@ The benchmark uses manually labeled financial queries and relevant source chunks
 
 This allows chunking, embeddings, hybrid retrieval, and reranking strategies to be compared against the same baseline rather than evaluated through anecdotal examples.
 
+### Read-only SQL
+
+SQLGenerator produces a single SQLite query for the `financial_metrics` schema. SQLExecutor validates read-only statements and opens the local database in read-only mode. The current graph executes the generated query once.
+
+## Known Limitations
+
+* Each request selects one route: RAG **or** SQL. Mixed-intent questions requiring both are not yet supported.
+* SQL execution has no graph-level repair or retry loop yet.
+* The SQL route does not consume API metadata filters as structured SQL constraints. Put required company and year information in the natural-language question.
+* SQLite remains the local structured-data backend.
+* There is no Python analysis, chart, or report workflow yet.
+* There is no Databricks integration yet.
+
 ## Roadmap
 
-* [x] Multi-document financial indexing
-* [x] Metadata-aware retrieval
-* [x] Grounded generation and citation repair
-* [x] Duplicate document replacement
-* [x] Ambiguous query detection
-* [x] Retrieval evaluation with Hit@1, Hit@3, Hit@5, and MRR@20
-* [x] Structure-aware financial-document chunking
-* [x] Reranking
-* [ ] Expand the retrieval benchmark dataset
-* [ ] Hybrid retrieval
-* [ ] Multilingual financial retrieval
-* [ ] Structured LLM outputs
-* [ ] Financial market data tools
-* [ ] SQL / Python analysis tools
-* [ ] LangGraph agent workflows
-* [ ] React frontend
-* [ ] PostgreSQL / pgvector
-* [ ] Docker and deployment
+1. Add a bounded SQL repair and retry path in the graph.
+2. Add multi-step analysis and reporting, including mixed SQL/RAG questions and later Python analysis, charts, and reports.
+3. Continue expanding the retrieval benchmark and evaluating retrieval changes against it.
+
+Other future integrations, including Databricks, remain outside Agent v1.
 
 ## Milestones
 
@@ -589,7 +659,7 @@ This allows chunking, embeddings, hybrid retrieval, and reranking strategies to 
 * Duplicate document replacement
 * Automated tests
 
-### Current Development — Measurable Retrieval
+### Retrieval Engineering — Measured Ranking
 
 * Manually labeled financial retrieval benchmark
 * Hit@1, Hit@3, Hit@5, and MRR@20 metrics
@@ -597,9 +667,20 @@ This allows chunking, embeddings, hybrid retrieval, and reranking strategies to 
 * Retrieval inspection utilities
 * Baseline retrieval measurements
 * Identification of chunk-boundary retrieval failures
+* Dense candidate retrieval followed by CrossEncoder reranking in production
+* Experimental BM25 and hybrid RRF retrieval
+
+### Agent v1 — RAG/SQL Routing
+
+* Structured Qwen3:4b routing into `rag` or `sql`
+* Typed LangGraph state, compiled conditional graph, and AgentService
+* Existing RAGPipeline reused through QueryService with scoped query options
+* Structured SQL generation and read-only local SQLite execution
+* `POST /agent/ask` with distinct typed RAG and SQL responses
+* Two curated routing evaluations totaling 60/60 correct decisions
 
 ## Status
 
 FinResearch AI is under active development.
 
-The current focus is improving financial-document retrieval quality using measurable experiments before introducing agentic workflows.
+Agent v1 is implemented. The next graph change is bounded SQL repair; retrieval improvements continue to be evaluated against labeled evidence.
