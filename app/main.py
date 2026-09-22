@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.documents import router as documents_router
+from app.api.agent import router as agent_router
 from app.services.rag_service import (
     create_application_services,
 )
@@ -50,6 +51,7 @@ def health_check():
 
 app.include_router(documents_router)
 app.include_router(rag_router)
+app.include_router(agent_router)
 
 
 #    uvicorn app.main:app --reload

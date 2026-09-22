@@ -1,6 +1,7 @@
 from fastapi import Request
 
 from app.rag.pipeline import RAGPipeline
+from app.services.agent_service import AgentService
 from app.services.document_service import DocumentService
 from app.services.query_service import QueryService
 
@@ -22,3 +23,9 @@ def get_query_service(
     request: Request,
 ) -> QueryService:
     return request.app.state.query_service
+
+
+def get_agent_service(
+    request: Request,
+) -> AgentService:
+    return request.app.state.agent_service
