@@ -16,12 +16,14 @@ async def lifespan(app: FastAPI):
     app.state.rag_pipeline = services.rag_pipeline
     app.state.document_service = services.document_service
     app.state.query_service = services.query_service
+    app.state.agent_service = services.agent_service
 
     yield
 
     app.state.rag_pipeline = None
     app.state.document_service = None
     app.state.query_service = None
+    app.state.agent_service = None
 
 app = FastAPI(
     title="FinResearch AI",
