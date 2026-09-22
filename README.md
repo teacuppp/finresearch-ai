@@ -58,6 +58,7 @@ The document workflow is:
 * Typed LangGraph state and conditional RAG/SQL routing
 * Structured Qwen3:4b route selection
 * Read-only SQL generation and execution against local SQLite
+* Bounded SQL execution repair with explicit graph state
 * Route-specific typed responses from `POST /agent/ask`
 * Labeled routing evaluation
 
@@ -77,8 +78,9 @@ The document workflow is:
 | Cross-encoder reranking         | ✅ Completed |
 | Agent v1 RAG/SQL routing        | ✅ Completed |
 | Agent HTTP API                  | ✅ Completed |
+| Bounded SQL self-repair         | ✅ Completed |
 
-Current focus: **bounded SQL repair, with multi-step analysis and reporting later.** Retrieval quality remains measured separately against the labeled benchmark below.
+Current focus: **multi-step analysis and reporting.** Retrieval quality remains measured separately against the labeled benchmark below.
 
 ## Retrieval Evaluation
 
@@ -259,8 +261,11 @@ POST /agent/ask
       rag → QueryService → existing RAGPipeline
           → dense candidate retrieval → CrossEncoder reranking
           → grounded Qwen answer → validated source citations
-      sql → SQLGenerator → read-only SQLExecutor
-          → local SQLite financial_metrics database
+      sql → generate_sql → execute_sql
+          ├─ success → END
+          └─ SQLExecutionError → record sql_error → check retry budget
+              ├─ budget remains → repair_sql → execute_sql
+              └─ exhausted → sql_failure → raise SQLExecutionError
 ```
 
 The API constructs the same metadata filter used by `/rag/ask`. The RAG branch passes the filter, `top_k`, company, and ticker through `AgentService` and the graph to `QueryService`. Unscoped RAG questions return HTTP 400 when multiple companies are indexed. The deterministic `RAGPipeline` still owns retrieval, reranking, context building, generation, and validation; LangGraph sits above it and does not reimplement those steps. PDF ingestion continues to use PyMuPDF, chunking, Sentence Transformers, and ChromaDB.
@@ -268,6 +273,7 @@ The API constructs the same metadata filter used by `/rag/ask`. The RAG branch p
 ### Agent v1 capabilities
 
 * Structured SQL generation and read-only SQLite execution
+* Bounded SQL self-repair through explicit generate, execute, repair, and failure nodes
 * Typed LangGraph state and conditional SQL/RAG routing
 * Structured Qwen routing and labeled routing benchmarks
 * AgentService composition through the FastAPI lifespan
@@ -400,7 +406,7 @@ SQL response shape; generated SQL may vary:
 }
 ```
 
-The SQL branch returns the executed query and rows; it does not generate a narrative answer. Metadata fields filter the RAG branch. For SQL questions, include required company and year information in `question`.
+The SQL branch returns the executed query and rows; it does not generate a narrative answer. After a repair, `generated_sql` is the final SQL that executed successfully. The public `/agent/ask` request and response contract did not change when bounded repair was added. Metadata fields filter the RAG branch. For SQL questions, include required company and year information in `question`.
 
 ### Direct RAG Endpoint
 
@@ -625,14 +631,43 @@ The benchmark uses manually labeled financial queries and relevant source chunks
 
 This allows chunking, embeddings, hybrid retrieval, and reranking strategies to be compared against the same baseline rather than evaluated through anecdotal examples.
 
-### Read-only SQL
+### Read-only SQL and Bounded Self-repair
 
-SQLGenerator produces a single SQLite query for the `financial_metrics` schema. SQLExecutor validates read-only statements and opens the local database in read-only mode. The current graph executes the generated query once.
+`generate_sql` calls SQLGenerator once, stores `generated_sql`, initializes `sql_retry_count` to `0`, and clears `sql_error`. `execute_sql` then sends that SQL to SQLExecutor, which applies the existing read-only validation and opens the local SQLite database in read-only mode.
+
+If execution raises `SQLExecutionError`, the graph records a safe error message in the explicit `sql_error` state field and checks the retry budget. When a repair is available, `repair_sql` calls `SQLGenerator.repair()` with the original question, financial schema, failed SQL, and execution error. It replaces `generated_sql`, increments the explicit `sql_retry_count` state field by one, clears `sql_error`, and routes the repaired SQL back through `execute_sql`.
+
+`max_sql_retries` defaults to `2`. It counts repair attempts, so a request permits at most two repairs and three total SQL executions: the initial query plus two repaired queries. When that budget is exhausted, `sql_failure` raises `SQLExecutionError` with the final execution error. The graph never returns a partial SQL result.
+
+Every repaired query still passes SQLGenerator's existing read-only validation and SQLExecutor's validation and execution path. `SQLValidationError` is not retried or repaired, so forbidden write or administrative SQL cannot enter the recovery loop.
+
+#### Controlled live smoke test
+
+A controlled live smoke test exercised one known column-name failure against the local `financial_metrics` database:
+
+```text
+Initial SQL:
+SELECT revenue FROM financial_metrics
+WHERE ticker = 'AAPL' AND fiscal_year = 2025
+
+SQLite error:
+no such column: revenue
+
+Repaired SQL:
+SELECT revenue_musd
+FROM financial_metrics
+WHERE ticker = 'AAPL' AND fiscal_year = 2025
+
+Result:
+revenue_musd = 416161
+sql_retry_count = 1
+```
+
+This verifies the controlled generate → execute → repair → execute path for that case. It is not a general SQL-repair accuracy benchmark.
 
 ## Known Limitations
 
 * Each request selects one route: RAG **or** SQL. Mixed-intent questions requiring both are not yet supported.
-* SQL execution has no graph-level repair or retry loop yet.
 * The SQL route does not consume API metadata filters as structured SQL constraints. Put required company and year information in the natural-language question.
 * SQLite remains the local structured-data backend.
 * There is no Python analysis, chart, or report workflow yet.
@@ -640,9 +675,9 @@ SQLGenerator produces a single SQLite query for the `financial_metrics` schema. 
 
 ## Roadmap
 
-1. Add a bounded SQL repair and retry path in the graph.
-2. Add multi-step analysis and reporting, including mixed SQL/RAG questions and later Python analysis, charts, and reports.
-3. Continue expanding the retrieval benchmark and evaluating retrieval changes against it.
+1. [x] Add bounded SQL repair and retry in the graph.
+2. [ ] Add multi-step analysis and reporting, including mixed SQL/RAG questions and later Python analysis, charts, and reports.
+3. [ ] Continue expanding the retrieval benchmark and evaluating retrieval changes against it.
 
 Other future integrations, including Databricks, remain outside Agent v1.
 
@@ -676,6 +711,7 @@ Other future integrations, including Databricks, remain outside Agent v1.
 * Typed LangGraph state, compiled conditional graph, and AgentService
 * Existing RAGPipeline reused through QueryService with scoped query options
 * Structured SQL generation and read-only local SQLite execution
+* Bounded SQL execution repair with two repair attempts by default
 * `POST /agent/ask` with distinct typed RAG and SQL responses
 * Two curated routing evaluations totaling 60/60 correct decisions
 
@@ -683,4 +719,4 @@ Other future integrations, including Databricks, remain outside Agent v1.
 
 FinResearch AI is under active development.
 
-Agent v1 is implemented. The next graph change is bounded SQL repair; retrieval improvements continue to be evaluated against labeled evidence.
+Agent v1 and bounded SQL self-repair are implemented. Multi-step analysis and reporting are next; retrieval improvements continue to be evaluated against labeled evidence.
