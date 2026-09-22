@@ -3,6 +3,7 @@ from typing import Mapping, Protocol, cast
 
 from app.agent.sql_executor import SQLQueryResult
 from app.agent.state import AgentState, Route
+from app.analysis.financial_analyzer import AnalysisOperation, AnalysisResult
 from app.rag.models import RetrievedChunk
 
 
@@ -26,6 +27,7 @@ class AgentResult:
     )
     generated_sql: str | None = None
     sql_result: SQLQueryResult | None = None
+    analysis_result: AnalysisResult | None = None
 
 
 class AgentService:
@@ -107,10 +109,29 @@ class AgentService:
                     "SQL graph result is missing a query result."
                 )
 
+            analysis_result = result.get("analysis_result")
+            sql_task_mode = result.get("sql_task_mode", "direct")
+            if sql_task_mode == "analysis":
+                operation = result.get("analysis_operation")
+                if (
+                    not isinstance(analysis_result, AnalysisResult)
+                    or not isinstance(operation, AnalysisOperation)
+                    or analysis_result.operation is not operation
+                ):
+                    raise InvalidAgentResultError(
+                        "Analysis graph result is missing or inconsistent."
+                    )
+            elif sql_task_mode != "direct" or any(
+                result.get(field) is not None
+                for field in ("analysis_operation", "analysis_plan", "analysis_result")
+            ):
+                raise InvalidAgentResultError("SQL graph result has inconsistent mode.")
+
             return AgentResult(
                 route="sql",
                 generated_sql=generated_sql,
                 sql_result=sql_result,
+                analysis_result=cast(AnalysisResult | None, analysis_result),
             )
 
         raise InvalidAgentResultError(

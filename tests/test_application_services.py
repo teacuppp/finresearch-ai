@@ -18,7 +18,17 @@ def test_composition_exposes_agent_and_reuses_query_service(
     question_router = object()
     sql_generator = object()
     sql_executor = object()
-    graph = object()
+    graph = Mock()
+    graph.invoke.return_value = {"route": "rag", "answer": "Answer", "sources": []}
+    classifier = object()
+    planner = object()
+    analyzer = object()
+    classifier_factory = Mock(return_value=classifier)
+    planner_factory = Mock(return_value=planner)
+    analyzer_factory = Mock(return_value=analyzer)
+    monkeypatch.setattr(rag_service, "SQLAnalysisClassifier", classifier_factory)
+    monkeypatch.setattr(rag_service, "AnalysisPlanner", planner_factory)
+    monkeypatch.setattr(rag_service, "FinancialAnalyzer", analyzer_factory)
 
     embedding_factory = Mock(
         return_value=embedding_model
@@ -127,12 +137,21 @@ def test_composition_exposes_agent_and_reuses_query_service(
     assert services.document_service is document_service
     assert services.query_service.rag_pipeline is rag_pipeline
     assert services.query_service.vector_store is vector_store
+    services.agent_service.ask("First question")
+    services.agent_service.ask("Second question")
+    assert graph.invoke.call_count == 2
+    classifier_factory.assert_called_once_with()
+    planner_factory.assert_called_once_with()
+    analyzer_factory.assert_called_once_with()
 
     graph_builder.assert_called_once_with(
         router=question_router,
         query_service=services.query_service,
         sql_generator=sql_generator,
         sql_executor=sql_executor,
+        sql_analysis_classifier=classifier,
+        analysis_planner=planner,
+        financial_analyzer=analyzer,
     )
     sql_executor_factory.assert_called_once_with(
         database_path=(
