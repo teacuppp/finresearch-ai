@@ -5,9 +5,22 @@ from app.agent.graph import (
     build_agent_graph,
 )
 from app.agent.schema import FINANCIAL_SCHEMA
-from app.agent.sql_executor import SQLQueryResult
+from app.agent.sql_executor import (
+    SQLExecutionError,
+    SQLQueryResult,
+    SQLValidationError,
+)
 from app.rag.models import RetrievedChunk
 from app.rag.pipeline import RAGResult
+from app.services.agent_service import AgentService
+
+
+INITIAL_SQL = "SELECT revenue_musd FROM financial_metrics"
+FIRST_REPAIR = "SELECT revenue_musd FROM financial_metrics WHERE ticker = 'AAPL'"
+SECOND_REPAIR = (
+    "SELECT revenue_musd FROM financial_metrics "
+    "WHERE ticker = 'AAPL' AND fiscal_year = 2025"
+)
 
 
 class FakeRouter:
@@ -55,8 +68,10 @@ class FakeQueryService:
 
 
 class FakeSQLGenerator:
-    def __init__(self):
+    def __init__(self, repaired_sqls: list[str] | None = None):
         self.calls = []
+        self.repair_calls = []
+        self.repaired_sqls = iter(repaired_sqls or [])
 
     def generate(self, question: str, schema: str) -> str:
         self.calls.append({
@@ -64,12 +79,31 @@ class FakeSQLGenerator:
             "schema": schema,
         })
 
-        return "SELECT revenue_musd FROM financial_metrics"
+        return INITIAL_SQL
+
+    def repair(
+        self,
+        question: str,
+        schema: str,
+        previous_sql: str,
+        error_message: str,
+    ) -> str:
+        self.repair_calls.append({
+            "question": question,
+            "schema": schema,
+            "previous_sql": previous_sql,
+            "error_message": error_message,
+        })
+        return next(self.repaired_sqls)
 
 
 class FakeSQLExecutor:
-    def __init__(self):
+    def __init__(
+        self,
+        outcomes: list[SQLQueryResult | Exception] | None = None,
+    ):
         self.calls = []
+        self.outcomes = iter(outcomes) if outcomes is not None else None
 
     def execute(
         self,
@@ -81,6 +115,12 @@ class FakeSQLExecutor:
             "parameters": parameters,
         })
 
+        if self.outcomes is not None:
+            outcome = next(self.outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
         return SQLQueryResult(
             columns=["revenue_musd"],
             rows=[{"revenue_musd": 416161.0}],
@@ -88,17 +128,23 @@ class FakeSQLExecutor:
         )
 
 
-def _graph_with_fakes(route: str):
+def _graph_with_fakes(
+    route: str,
+    max_sql_retries: int = 2,
+    repaired_sqls: list[str] | None = None,
+    execution_outcomes: list[SQLQueryResult | Exception] | None = None,
+):
     router = FakeRouter(route)
     query_service = FakeQueryService()
-    sql_generator = FakeSQLGenerator()
-    sql_executor = FakeSQLExecutor()
+    sql_generator = FakeSQLGenerator(repaired_sqls)
+    sql_executor = FakeSQLExecutor(execution_outcomes)
 
     graph = build_agent_graph(
         router=router,
         query_service=query_service,
         sql_generator=sql_generator,
         sql_executor=sql_executor,
+        max_sql_retries=max_sql_retries,
     )
 
     return (
@@ -133,6 +179,7 @@ def test_rag_route_delegates_to_query_service():
         }
     ]
     assert sql_generator.calls == []
+    assert sql_generator.repair_calls == []
     assert sql_executor.calls == []
     assert result["route"] == "rag"
     assert result["answer"] == f"RAG answer for {question} [Source 1]"
@@ -171,6 +218,7 @@ def test_rag_route_forwards_query_options_unchanged():
     }]
     assert query_service.calls[0]["where"] is where
     assert sql_generator.calls == []
+    assert sql_generator.repair_calls == []
     assert sql_executor.calls == []
 
 
@@ -202,8 +250,11 @@ def test_sql_route_delegates_to_generator_and_executor():
             "parameters": (),
         }
     ]
+    assert sql_generator.repair_calls == []
     assert result["route"] == "sql"
     assert result["generated_sql"] == generated_sql
+    assert result["sql_retry_count"] == 0
+    assert result["sql_error"] is None
     assert result["sql_result"] == SQLQueryResult(
         columns=["revenue_musd"],
         rows=[{"revenue_musd": 416161.0}],
@@ -239,6 +290,219 @@ def test_sql_route_ignores_rag_query_options():
     assert result["route"] == "sql"
 
 
+def test_first_sql_repair_succeeds_with_final_sql_and_result():
+    question = "What was Apple's 2025 revenue?"
+    expected_result = SQLQueryResult(
+        columns=["revenue_musd"],
+        rows=[{"revenue_musd": 416161.0}],
+        row_count=1,
+    )
+    graph, _, query_service, generator, executor = _graph_with_fakes(
+        "sql",
+        repaired_sqls=[FIRST_REPAIR],
+        execution_outcomes=[
+            SQLExecutionError("no such column: revenue"),
+            expected_result,
+        ],
+    )
+
+    result = graph.invoke({"question": question})
+
+    assert query_service.calls == []
+    assert generator.calls == [{
+        "question": question,
+        "schema": FINANCIAL_SCHEMA,
+    }]
+    assert generator.repair_calls == [{
+        "question": question,
+        "schema": FINANCIAL_SCHEMA,
+        "previous_sql": INITIAL_SQL,
+        "error_message": "no such column: revenue",
+    }]
+    assert [call["sql"] for call in executor.calls] == [
+        INITIAL_SQL,
+        FIRST_REPAIR,
+    ]
+    assert result["generated_sql"] == FIRST_REPAIR
+    assert result["sql_result"] == expected_result
+    assert result["sql_retry_count"] == 1
+    assert result["sql_error"] is None
+
+
+def test_two_sql_repairs_succeed_within_retry_budget():
+    expected_result = SQLQueryResult(
+        columns=["revenue_musd"],
+        rows=[{"revenue_musd": 416161.0}],
+        row_count=1,
+    )
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql",
+        max_sql_retries=2,
+        repaired_sqls=[FIRST_REPAIR, SECOND_REPAIR],
+        execution_outcomes=[
+            SQLExecutionError("first failure"),
+            SQLExecutionError("second failure"),
+            expected_result,
+        ],
+    )
+
+    result = graph.invoke({"question": "Revenue in 2025?"})
+
+    assert len(generator.calls) == 1
+    assert len(generator.repair_calls) == 2
+    assert generator.repair_calls[1]["previous_sql"] == FIRST_REPAIR
+    assert generator.repair_calls[1]["error_message"] == "second failure"
+    assert [call["sql"] for call in executor.calls] == [
+        INITIAL_SQL,
+        FIRST_REPAIR,
+        SECOND_REPAIR,
+    ]
+    assert result["generated_sql"] == SECOND_REPAIR
+    assert result["sql_result"] == expected_result
+    assert result["sql_retry_count"] == 2
+    assert result["sql_error"] is None
+
+
+def test_sql_retry_exhaustion_raises_final_execution_error():
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql",
+        max_sql_retries=2,
+        repaired_sqls=[FIRST_REPAIR, SECOND_REPAIR],
+        execution_outcomes=[
+            SQLExecutionError("first failure"),
+            SQLExecutionError("second failure"),
+            SQLExecutionError("final failure"),
+        ],
+    )
+
+    with pytest.raises(SQLExecutionError, match="final failure") as exc_info:
+        graph.invoke({"question": "Revenue in 2025?"})
+
+    assert str(exc_info.value).startswith("final failure")
+    assert len(generator.calls) == 1
+    assert len(generator.repair_calls) == 2
+    assert [call["sql"] for call in executor.calls] == [
+        INITIAL_SQL,
+        FIRST_REPAIR,
+        SECOND_REPAIR,
+    ]
+
+
+def test_zero_sql_retries_fails_after_initial_execution():
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql",
+        max_sql_retries=0,
+        execution_outcomes=[SQLExecutionError("initial failure")],
+    )
+
+    with pytest.raises(SQLExecutionError, match="initial failure") as exc_info:
+        graph.invoke({"question": "Revenue in 2025?"})
+
+    assert str(exc_info.value).startswith("initial failure")
+    assert len(generator.calls) == 1
+    assert generator.repair_calls == []
+    assert [call["sql"] for call in executor.calls] == [INITIAL_SQL]
+
+
+def test_sql_validation_failure_is_not_repaired():
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql",
+        repaired_sqls=[FIRST_REPAIR],
+        execution_outcomes=[SQLValidationError("Only SELECT queries are allowed.")],
+    )
+
+    with pytest.raises(SQLValidationError, match="Only SELECT queries are allowed"):
+        graph.invoke({"question": "Revenue in 2025?"})
+
+    assert generator.repair_calls == []
+    assert [call["sql"] for call in executor.calls] == [INITIAL_SQL]
+
+
+def test_negative_sql_retry_budget_is_rejected():
+    with pytest.raises(ValueError, match="max_sql_retries must be non-negative"):
+        _graph_with_fakes("sql", max_sql_retries=-1)
+
+
+def test_retry_budget_above_default_graph_recursion_limit_can_succeed():
+    repaired_sqls = [f"SELECT {index}" for index in range(12)]
+    expected_result = SQLQueryResult(
+        columns=["value"], rows=[{"value": 1}], row_count=1
+    )
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql",
+        max_sql_retries=12,
+        repaired_sqls=repaired_sqls,
+        execution_outcomes=[
+            *[SQLExecutionError("retry") for _ in range(12)],
+            expected_result,
+        ],
+    )
+
+    result = graph.invoke({"question": "Revenue?"})
+
+    assert len(generator.calls) == 1
+    assert len(generator.repair_calls) == 12
+    assert len(executor.calls) == 13
+    assert result["generated_sql"] == repaired_sqls[-1]
+    assert result["sql_retry_count"] == 12
+    assert result["sql_result"] == expected_result
+
+
+def test_sql_retry_state_does_not_leak_between_graph_invocations():
+    first_result = SQLQueryResult(columns=["first"], rows=[{"first": 1}], row_count=1)
+    second_result = SQLQueryResult(
+        columns=["second"], rows=[{"second": 2}], row_count=1
+    )
+    graph, router, _, generator, executor = _graph_with_fakes(
+        "sql",
+        repaired_sqls=[FIRST_REPAIR],
+        execution_outcomes=[
+            SQLExecutionError("first failure"),
+            first_result,
+            second_result,
+        ],
+    )
+
+    first = graph.invoke({"question": "First question"})
+    second = graph.invoke({"question": "Second question"})
+
+    assert router.calls == ["First question", "Second question"]
+    assert len(generator.calls) == 2
+    assert len(generator.repair_calls) == 1
+    assert [call["sql"] for call in executor.calls] == [
+        INITIAL_SQL,
+        FIRST_REPAIR,
+        INITIAL_SQL,
+    ]
+    assert first["sql_retry_count"] == 1
+    assert first["sql_result"] == first_result
+    assert second["sql_retry_count"] == 0
+    assert second["sql_error"] is None
+    assert second["generated_sql"] == INITIAL_SQL
+    assert second["sql_result"] == second_result
+
+
+def test_agent_service_returns_successful_repaired_sql():
+    expected_result = SQLQueryResult(
+        columns=["value"], rows=[{"value": 1}], row_count=1
+    )
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql",
+        repaired_sqls=[FIRST_REPAIR],
+        execution_outcomes=[SQLExecutionError("first failure"), expected_result],
+    )
+
+    result = AgentService(graph=graph).ask("Revenue?")
+
+    assert result.route == "sql"
+    assert result.generated_sql == FIRST_REPAIR
+    assert result.sql_result == expected_result
+    assert result.answer is None
+    assert len(generator.calls) == 1
+    assert len(generator.repair_calls) == 1
+    assert [call["sql"] for call in executor.calls] == [INITIAL_SQL, FIRST_REPAIR]
+
+
 def test_invalid_route_fails_explicitly():
     (
         graph,
@@ -255,6 +519,7 @@ def test_invalid_route_fails_explicitly():
 
     assert query_service.calls == []
     assert sql_generator.calls == []
+    assert sql_generator.repair_calls == []
     assert sql_executor.calls == []
 
 
