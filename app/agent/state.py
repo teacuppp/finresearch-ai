@@ -18,3 +18,5 @@ class AgentState(TypedDict):
     sources: NotRequired[list[RetrievedChunk]]
     generated_sql: NotRequired[str]
     sql_result: NotRequired[SQLQueryResult]
+    sql_error: NotRequired[str | None]
+    sql_retry_count: NotRequired[int]
