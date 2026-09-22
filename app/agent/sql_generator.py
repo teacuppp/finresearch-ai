@@ -85,6 +85,17 @@ syntax. Return SQL only, without Markdown fences, explanation, or comments.
 """.strip()
 
 
+ANALYSIS_DATA_SQL_REPAIR_SYSTEM_PROMPT = f"""
+{ANALYSIS_DATA_SQL_SYSTEM_PROMPT}
+
+Repair the failed analysis-data query using the database error. Change only
+what is needed to make it execute against the supplied schema. Preserve the
+requested operation's raw source values and identifier/context columns.
+The repaired query must still supply rows to the financial analyzer; never
+replace it with SQL that calculates the final answer.
+""".strip()
+
+
 class SQLGenerationError(RuntimeError):
     pass
 
@@ -354,3 +365,64 @@ Return SQL only.
         return extract_sql(
             content
         )
+
+    def repair_analysis_data(
+        self,
+        question: str,
+        schema: str,
+        operation: AnalysisOperation,
+        previous_sql: str,
+        error_message: str,
+    ) -> str:
+        question = question.strip()
+        schema = schema.strip()
+        previous_sql = previous_sql.strip()
+        error_message = error_message.strip()
+
+        if not question:
+            raise ValueError("question must not be empty")
+        if not schema:
+            raise ValueError("schema must not be empty")
+        if not isinstance(operation, AnalysisOperation):
+            raise ValueError("operation must be an AnalysisOperation")
+        if not previous_sql:
+            raise ValueError("previous_sql must not be empty")
+        if not error_message:
+            raise ValueError("error_message must not be empty")
+
+        user_prompt = f"""
+Database schema:
+
+{schema}
+
+Original user question:
+
+{question}
+
+Requested analysis operation: {operation.value}
+
+Previous SQL:
+
+{previous_sql}
+
+Database error:
+
+{error_message}
+
+Fix the execution error while preserving raw input rows and values for the
+requested analysis operation. Return SQL only.
+""".strip()
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": ANALYSIS_DATA_SQL_REPAIR_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0,
+        )
+
+        content = response.choices[0].message.content
+        if content is None:
+            raise SQLGenerationError("LLM returned an empty SQL repair response.")
+        return extract_sql(content)
