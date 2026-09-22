@@ -43,7 +43,13 @@ def build_agent_graph(
         return _validated_route(state.get("route"))
 
     def rag_node(state: AgentState) -> dict[str, object]:
-        result = query_service.ask(question=state["question"])
+        result = query_service.ask(
+            question=state["question"],
+            top_k=state.get("top_k", 5),
+            where=state.get("where"),
+            company=state.get("company"),
+            ticker=state.get("ticker"),
+        )
 
         return {
             "answer": result.answer,

@@ -32,8 +32,41 @@ def test_delegates_one_invocation_with_initial_question():
     service.ask(question)
 
     assert graph.calls == [
-        {"question": question}
+        {
+            "question": question,
+            "top_k": 5,
+            "where": None,
+            "company": None,
+            "ticker": None,
+        }
     ]
+
+
+def test_initial_state_contains_supplied_query_options():
+    graph = FakeGraph([{
+        "route": "rag",
+        "answer": "Answer [Source 1]",
+        "sources": [],
+    }])
+    service = AgentService(graph=graph)
+    where = {"document_type": {"$eq": "10-K"}}
+
+    service.ask(
+        "What risks did Apple disclose?",
+        top_k=3,
+        where=where,
+        company="Apple",
+        ticker="AAPL",
+    )
+
+    assert graph.calls == [{
+        "question": "What risks did Apple disclose?",
+        "top_k": 3,
+        "where": where,
+        "company": "Apple",
+        "ticker": "AAPL",
+    }]
+    assert graph.calls[0]["where"] is where
 
 
 def test_maps_rag_graph_result():
@@ -128,12 +161,31 @@ def test_service_state_does_not_leak_between_calls():
     ])
     service = AgentService(graph=graph)
 
-    first_result = service.ask("First question")
+    where = {"ticker": {"$eq": "AAPL"}}
+    first_result = service.ask(
+        "First question",
+        top_k=2,
+        where=where,
+        company="Apple",
+        ticker="AAPL",
+    )
     second_result = service.ask("Second question")
 
     assert graph.calls == [
-        {"question": "First question"},
-        {"question": "Second question"},
+        {
+            "question": "First question",
+            "top_k": 2,
+            "where": where,
+            "company": "Apple",
+            "ticker": "AAPL",
+        },
+        {
+            "question": "Second question",
+            "top_k": 5,
+            "where": None,
+            "company": None,
+            "ticker": None,
+        },
     ]
     assert graph.calls[0] is not graph.calls[1]
     assert first_result.route == "rag"

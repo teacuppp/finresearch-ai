@@ -9,6 +9,10 @@ Route = Literal["rag", "sql"]
 
 class AgentState(TypedDict):
     question: str
+    top_k: NotRequired[int]
+    where: NotRequired[dict | None]
+    company: NotRequired[str | None]
+    ticker: NotRequired[str | None]
     route: NotRequired[Route]
     answer: NotRequired[str]
     sources: NotRequired[list[RetrievedChunk]]

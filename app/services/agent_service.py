@@ -38,6 +38,10 @@ class AgentService:
     def ask(
         self,
         question: str,
+        top_k: int = 5,
+        where: dict | None = None,
+        company: str | None = None,
+        ticker: str | None = None,
     ) -> AgentResult:
         if not question.strip():
             raise ValueError(
@@ -46,6 +50,10 @@ class AgentService:
 
         initial_state: AgentState = {
             "question": question,
+            "top_k": top_k,
+            "where": where,
+            "company": company,
+            "ticker": ticker,
         }
         result = self.graph.invoke(
             initial_state

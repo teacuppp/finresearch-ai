@@ -139,6 +139,41 @@ def test_rag_route_delegates_to_query_service():
     assert len(result["sources"]) == 1
 
 
+def test_rag_route_forwards_query_options_unchanged():
+    (
+        graph,
+        _,
+        query_service,
+        sql_generator,
+        sql_executor,
+    ) = _graph_with_fakes("rag")
+    where = {
+        "$and": [
+            {"ticker": {"$eq": "MSFT"}},
+            {"fiscal_year": {"$eq": 2025}},
+        ]
+    }
+
+    graph.invoke({
+        "question": "What risks did Microsoft disclose?",
+        "top_k": 3,
+        "where": where,
+        "company": "Microsoft",
+        "ticker": "MSFT",
+    })
+
+    assert query_service.calls == [{
+        "question": "What risks did Microsoft disclose?",
+        "top_k": 3,
+        "where": where,
+        "company": "Microsoft",
+        "ticker": "MSFT",
+    }]
+    assert query_service.calls[0]["where"] is where
+    assert sql_generator.calls == []
+    assert sql_executor.calls == []
+
+
 def test_sql_route_delegates_to_generator_and_executor():
     (
         graph,
@@ -176,6 +211,34 @@ def test_sql_route_delegates_to_generator_and_executor():
     )
 
 
+def test_sql_route_ignores_rag_query_options():
+    (
+        graph,
+        router,
+        query_service,
+        sql_generator,
+        sql_executor,
+    ) = _graph_with_fakes("sql")
+    question = "What was Apple's revenue?"
+
+    result = graph.invoke({
+        "question": question,
+        "top_k": 2,
+        "where": {"ticker": {"$eq": "AAPL"}},
+        "company": "Apple",
+        "ticker": "AAPL",
+    })
+
+    assert router.calls == [question]
+    assert query_service.calls == []
+    assert sql_generator.calls == [{
+        "question": question,
+        "schema": FINANCIAL_SCHEMA,
+    }]
+    assert len(sql_executor.calls) == 1
+    assert result["route"] == "sql"
+
+
 def test_invalid_route_fails_explicitly():
     (
         graph,
@@ -199,14 +262,37 @@ def test_graph_invocations_do_not_share_results():
     (
         graph,
         _,
-        _,
+        query_service,
         _,
         _,
     ) = _graph_with_fakes("rag")
 
-    first_result = graph.invoke({"question": "First question"})
+    where = {"ticker": {"$eq": "AAPL"}}
+    first_result = graph.invoke({
+        "question": "First question",
+        "top_k": 2,
+        "where": where,
+        "company": "Apple",
+        "ticker": "AAPL",
+    })
     second_result = graph.invoke({"question": "Second question"})
 
+    assert query_service.calls == [
+        {
+            "question": "First question",
+            "top_k": 2,
+            "where": where,
+            "company": "Apple",
+            "ticker": "AAPL",
+        },
+        {
+            "question": "Second question",
+            "top_k": 5,
+            "where": None,
+            "company": None,
+            "ticker": None,
+        },
+    ]
     assert first_result["answer"] == (
         "RAG answer for First question [Source 1]"
     )
