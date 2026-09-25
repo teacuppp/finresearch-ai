@@ -5,6 +5,9 @@ from app.agent.graph import build_agent_graph
 from app.agent.router import LLMQuestionRouter
 from app.agent.sql_executor import SQLExecutor
 from app.agent.sql_generator import SQLGenerator
+from app.analysis.financial_analyzer import FinancialAnalyzer
+from app.analysis.intent import SQLAnalysisClassifier
+from app.analysis.planner import AnalysisPlanner
 from app.rag.embeddings import EmbeddingModel
 from app.rag.generator import AnswerGenerator
 from app.rag.pipeline import RAGPipeline
@@ -83,11 +86,18 @@ def create_application_services() -> (
         ),
     )
 
+    sql_analysis_classifier = SQLAnalysisClassifier()
+    analysis_planner = AnalysisPlanner()
+    financial_analyzer = FinancialAnalyzer()
+
     agent_graph = build_agent_graph(
         router=question_router,
         query_service=query_service,
         sql_generator=sql_generator,
         sql_executor=sql_executor,
+        sql_analysis_classifier=sql_analysis_classifier,
+        analysis_planner=analysis_planner,
+        financial_analyzer=financial_analyzer,
     )
 
     agent_service = AgentService(

@@ -1,10 +1,13 @@
 from typing import Literal, NotRequired, TypedDict
 
 from app.agent.sql_executor import SQLQueryResult
+from app.analysis.financial_analyzer import AnalysisOperation, AnalysisResult
+from app.analysis.planner import AnalysisPlan
 from app.rag.models import RetrievedChunk
 
 
 Route = Literal["rag", "sql"]
+SQLTaskMode = Literal["direct", "analysis"]
 
 
 class AgentState(TypedDict):
@@ -20,3 +23,7 @@ class AgentState(TypedDict):
     sql_result: NotRequired[SQLQueryResult]
     sql_error: NotRequired[str | None]
     sql_retry_count: NotRequired[int]
+    sql_task_mode: NotRequired[SQLTaskMode]
+    analysis_operation: NotRequired[AnalysisOperation]
+    analysis_plan: NotRequired[AnalysisPlan]
+    analysis_result: NotRequired[AnalysisResult]

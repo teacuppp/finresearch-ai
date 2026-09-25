@@ -1,6 +1,7 @@
 import pytest
 
 from app.agent.sql_executor import SQLQueryResult
+from app.analysis.financial_analyzer import AnalysisOperation, AnalysisResult
 from app.rag.models import RetrievedChunk
 from app.services.agent_service import (
     AgentService,
@@ -277,3 +278,76 @@ def test_blank_question_raises_value_error_without_invoking_graph():
         service.ask(" \t ")
 
     assert graph.calls == []
+
+
+def test_analysis_result_keeps_raw_sql_rows_and_domain_result():
+    raw = SQLQueryResult(
+        columns=["revenue_musd"],
+        rows=[{"revenue_musd": 100}, {"revenue_musd": 125}], row_count=2,
+    )
+    analysis = AnalysisResult(AnalysisOperation.PERCENTAGE_CHANGE, value=25.0)
+    graph = FakeGraph([{
+        "route": "sql", "sql_task_mode": "analysis",
+        "analysis_operation": AnalysisOperation.PERCENTAGE_CHANGE,
+        "generated_sql": "SELECT revenue_musd FROM financial_metrics",
+        "sql_result": raw, "analysis_result": analysis,
+    }])
+
+    result = AgentService(graph).ask("Revenue growth?")
+
+    assert result.route == "sql"
+    assert result.generated_sql == "SELECT revenue_musd FROM financial_metrics"
+    assert result.sql_result is raw
+    assert result.analysis_result is analysis
+    assert result.answer is None
+    assert result.sources == []
+
+
+@pytest.mark.parametrize("overrides", [
+    {"analysis_result": None},
+    {"analysis_result": {"operation": "percentage_change", "value": 25}},
+    {"analysis_result": AnalysisResult("percentage_change", value=25)},
+    {"analysis_operation": None},
+    {"analysis_operation": "percentage_change"},
+    {"analysis_operation": AnalysisOperation.RANKING},
+    {"sql_task_mode": "direct"},
+    {"sql_task_mode": "unsupported"},
+])
+def test_malformed_analysis_state_is_rejected(overrides):
+    state = {
+        "route": "sql", "sql_task_mode": "analysis",
+        "analysis_operation": AnalysisOperation.PERCENTAGE_CHANGE,
+        "generated_sql": "SELECT revenue_musd FROM financial_metrics",
+        "sql_result": SQLQueryResult(columns=[], rows=[], row_count=0),
+        "analysis_result": AnalysisResult(
+            AnalysisOperation.PERCENTAGE_CHANGE, value=25,
+        ),
+        **overrides,
+    }
+
+    with pytest.raises(InvalidAgentResultError):
+        AgentService(FakeGraph([state])).ask("Revenue growth?")
+
+
+def test_analysis_then_direct_service_calls_use_fresh_state():
+    raw = SQLQueryResult(columns=["value"], rows=[{"value": 1}], row_count=1)
+    graph = FakeGraph([
+        {
+            "route": "sql", "sql_task_mode": "analysis", "generated_sql": "SELECT 1",
+            "sql_result": raw, "analysis_operation": AnalysisOperation.DIFFERENCE,
+            "analysis_result": AnalysisResult(AnalysisOperation.DIFFERENCE, value=1),
+        },
+        {
+            "route": "sql", "sql_task_mode": "direct", "generated_sql": "SELECT 2",
+            "sql_result": raw,
+        },
+    ])
+    service = AgentService(graph)
+
+    first = service.ask("Difference?")
+    second = service.ask("Revenue?")
+
+    assert first.analysis_result is not None
+    assert second.analysis_result is None
+    assert graph.calls[0] is not graph.calls[1]
+    assert all("analysis_result" not in state for state in graph.calls)

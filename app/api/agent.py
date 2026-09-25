@@ -7,6 +7,9 @@ from app.agent.graph import UnsupportedRouteError
 from app.agent.router import QuestionRoutingError
 from app.agent.sql_executor import SQLExecutionError, SQLValidationError
 from app.agent.sql_generator import SQLGenerationError
+from app.analysis.financial_analyzer import AnalysisError, AnalysisOperation
+from app.analysis.intent import SQLAnalysisClassificationError
+from app.analysis.planner import AnalysisPlanningError
 from app.api.filters import build_metadata_filter
 from app.api.rag import AskRequest as RAGAskRequest, SourceResponse
 from app.dependencies import get_agent_service
@@ -39,10 +42,17 @@ class SQLResultResponse(BaseModel):
     row_count: int
 
 
+class AnalysisResultResponse(BaseModel):
+    operation: AnalysisOperation
+    value: int | float | None
+    ranked_rows: list[dict[str, Any]]
+
+
 class SQLAgentResponse(BaseModel):
     route: Literal["sql"]
     generated_sql: str
     sql_result: SQLResultResponse
+    analysis_result: AnalysisResultResponse | None = None
 
 
 AgentAskResponse = Annotated[
@@ -51,7 +61,9 @@ AgentAskResponse = Annotated[
 ]
 
 
-@router.post("/ask", response_model=AgentAskResponse)
+@router.post(
+    "/ask", response_model=AgentAskResponse, response_model_exclude_unset=True
+)
 def ask_question(
     request: AgentAskRequest,
     agent_service: Annotated[AgentService, Depends(get_agent_service)],
@@ -85,6 +97,9 @@ def ask_question(
         SQLExecutionError,
         SQLValidationError,
         InvalidAgentResultError,
+        SQLAnalysisClassificationError,
+        AnalysisPlanningError,
+        AnalysisError,
     ) as exc:
         raise HTTPException(
             status_code=502,
@@ -111,7 +126,7 @@ def ask_question(
             status_code=502,
             detail="The agent could not complete the request.",
         )
-    return SQLAgentResponse(
+    response = SQLAgentResponse(
         route="sql",
         generated_sql=result.generated_sql,
         sql_result=SQLResultResponse(
@@ -120,3 +135,10 @@ def ask_question(
             row_count=result.sql_result.row_count,
         ),
     )
+    if result.analysis_result is not None:
+        response.analysis_result = AnalysisResultResponse(
+            operation=result.analysis_result.operation,
+            value=result.analysis_result.value,
+            ranked_rows=[dict(row) for row in result.analysis_result.ranked_rows],
+        )
+    return response
