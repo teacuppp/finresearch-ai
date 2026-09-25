@@ -4,7 +4,7 @@
 
 **Agentic financial research over documents and local structured data.**
 
-FinResearch AI ingests financial reports such as 10-K filings, retrieves document evidence, and generates grounded answers with source citations. Its Agent v1 API can also route structured financial questions to a read-only local SQLite database.
+FinResearch AI ingests financial reports such as 10-K filings, retrieves document evidence, and generates grounded answers with source citations. Its agent API also routes structured questions to read-only local SQLite queries and supports deterministic financial calculations over retrieved rows.
 
 Retrieval, indexing, grounding, and evaluation remain explicit and independently testable. LangGraph orchestrates the existing services above the deterministic RAG pipeline.
 
@@ -25,7 +25,7 @@ The document workflow is:
 11. Refuse unsupported questions when retrieved evidence is insufficient.
 12. Evaluate retrieval quality against a manually labeled benchmark.
 
-`POST /agent/ask` adds a router above this workflow: it selects document RAG or a read-only SQL query for each question. The existing `POST /rag/ask` endpoint remains available for direct RAG requests.
+`POST /agent/ask` adds a router above this workflow: it selects document RAG or SQL for each question. SQL questions then use either direct SQL or the Python analysis workflow. The existing `POST /rag/ask` endpoint remains available for direct RAG requests.
 
 ## Key Features
 
@@ -59,6 +59,9 @@ The document workflow is:
 * Structured Qwen3:4b route selection
 * Read-only SQL generation and execution against local SQLite
 * Bounded SQL execution repair with explicit graph state
+* Structured SQL task classification into direct or analysis mode
+* Raw-value SQL generation and repair for financial analysis
+* Structured analysis planning and deterministic calculation
 * Route-specific typed responses from `POST /agent/ask`
 * Labeled routing evaluation
 
@@ -79,8 +82,9 @@ The document workflow is:
 | Agent v1 RAG/SQL routing        | ✅ Completed |
 | Agent HTTP API                  | ✅ Completed |
 | Bounded SQL self-repair         | ✅ Completed |
+| Python financial analysis      | ✅ Completed |
 
-Current focus: **multi-step analysis and reporting.** Retrieval quality remains measured separately against the labeled benchmark below.
+Current focus: **mixed evidence workflows, charts, and reports.** Retrieval quality remains measured separately against the labeled benchmark below.
 
 ## Retrieval Evaluation
 
@@ -261,14 +265,23 @@ POST /agent/ask
       rag → QueryService → existing RAGPipeline
           → dense candidate retrieval → CrossEncoder reranking
           → grounded Qwen answer → validated source citations
-      sql → generate_sql → execute_sql
-          ├─ success → END
-          └─ SQLExecutionError → record sql_error → check retry budget
-              ├─ budget remains → repair_sql → execute_sql
-              └─ exhausted → sql_failure → raise SQLExecutionError
+      sql → SQLAnalysisClassifier
+          ├─ direct → generate_sql (SQLGenerator.generate)
+          └─ analysis → generate_analysis_data (SQLGenerator.generate_analysis_data)
+          ↳ both converge at execute_sql (SQLExecutor)
+              ├─ direct success → END
+              ├─ analysis success → AnalysisPlanner
+              │   → FinancialAnalyzer → AnalysisResult → END
+              └─ SQLExecutionError → check shared retry budget
+                  ├─ direct → repair_sql (SQLGenerator.repair) → execute_sql
+                  ├─ analysis → repair_analysis_sql
+                  │   (SQLGenerator.repair_analysis_data) → execute_sql
+                  └─ exhausted → sql_failure → raise SQLExecutionError
 ```
 
 The API constructs the same metadata filter used by `/rag/ask`. The RAG branch passes the filter, `top_k`, company, and ticker through `AgentService` and the graph to `QueryService`. Unscoped RAG questions return HTTP 400 when multiple companies are indexed. The deterministic `RAGPipeline` still owns retrieval, reranking, context building, generation, and validation; LangGraph sits above it and does not reimplement those steps. PDF ingestion continues to use PyMuPDF, chunking, Sentence Transformers, and ChromaDB.
+
+Within the SQL branch, `SQLAnalysisClassifier` selects `direct` or `analysis`; the top-level router still has only `rag` and `sql`. Analysis-mode SQL retrieves raw structured evidence with year and company/ticker context. The structured LLM `AnalysisPlanner` chooses a supported operation and exact result rows and columns. `FinancialAnalyzer` then calculates deterministically. No arbitrary Python code is generated or executed. Supported operations are exactly `absolute_change`, `percentage_change`, `difference`, and `ranking`. Average, sum, count, min/max aggregation, and generic ratios remain on the direct SQL path.
 
 ### Agent v1 capabilities
 
@@ -279,6 +292,7 @@ The API constructs the same metadata filter used by `/rag/ask`. The RAG branch p
 * AgentService composition through the FastAPI lifespan
 * RAG query-option propagation and ambiguity protection for unscoped multi-company RAG queries
 * `POST /agent/ask` with route-specific typed API responses
+* SQL task classification, raw analysis-data SQL generation and repair, typed planning, and deterministic analysis
 
 ## Tech Stack
 
@@ -406,7 +420,29 @@ SQL response shape; generated SQL may vary:
 }
 ```
 
-The SQL branch returns the executed query and rows; it does not generate a narrative answer. After a repair, `generated_sql` is the final SQL that executed successfully. The public `/agent/ask` request and response contract did not change when bounded repair was added. Metadata fields filter the RAG branch. For SQL questions, include required company and year information in `question`.
+Direct SQL keeps the response above, with no `analysis_result` field. Analysis SQL retains the raw rows and adds the calculated result. For example, using the two Apple revenue values from the live smoke test (generated SQL may vary):
+
+```json
+{
+  "route": "sql",
+  "generated_sql": "SELECT fiscal_year, revenue_musd FROM financial_metrics WHERE ticker = 'AAPL' AND fiscal_year IN (2024, 2025) ORDER BY fiscal_year",
+  "sql_result": {
+    "columns": ["fiscal_year", "revenue_musd"],
+    "rows": [
+      {"fiscal_year": 2024, "revenue_musd": 391035},
+      {"fiscal_year": 2025, "revenue_musd": 416161}
+    ],
+    "row_count": 2
+  },
+  "analysis_result": {
+    "operation": "percentage_change",
+    "value": 6.425511782832739,
+    "ranked_rows": []
+  }
+}
+```
+
+For `ranking`, `value` is `null` and `ranked_rows` contains the sorted rows. Those rows are immutable mappings inside `AnalysisResult`; the API converts them to ordinary JSON objects without changing the domain result. The SQL branch returns executed queries and rows rather than a narrative answer. After repair, `generated_sql` is the final SQL that executed successfully. API metadata fields filter RAG only; include required company and year details in the natural-language question for SQL.
 
 ### Direct RAG Endpoint
 
@@ -496,6 +532,10 @@ finresearch-ai/
 │   │   ├── sql_executor.py
 │   │   ├── sql_generator.py
 │   │   └── state.py
+│   ├── analysis/
+│   │   ├── financial_analyzer.py
+│   │   ├── intent.py
+│   │   └── planner.py
 │   ├── api/
 │   │   ├── agent.py
 │   │   ├── documents.py
@@ -540,7 +580,7 @@ finresearch-ai/
 │   ├── evaluate_routing.py
 │   ├── init_financial_db.py
 │   └── inspect_document_chunks.py
-├── tests/                      # API, agent, RAG, SQL, and evaluation tests
+├── tests/                      # API, agent, analysis, RAG, SQL, and evaluation tests
 ├── requirements.txt
 ├── pytest.ini
 └── README.md
@@ -578,6 +618,7 @@ The tests cover:
 * FastAPI endpoints
 * agent graph, router, and AgentService behavior
 * read-only SQL generation and execution
+* SQL analysis intent, raw-data generation and repair, planning, and deterministic calculations
 * route-specific agent API responses
 * routing benchmark loading and metrics
 
@@ -633,13 +674,15 @@ This allows chunking, embeddings, hybrid retrieval, and reranking strategies to 
 
 ### Read-only SQL and Bounded Self-repair
 
-`generate_sql` calls SQLGenerator once, stores `generated_sql`, initializes `sql_retry_count` to `0`, and clears `sql_error`. `execute_sql` then sends that SQL to SQLExecutor, which applies the existing read-only validation and opens the local SQLite database in read-only mode.
+After SQL classification, `generate_sql` calls `SQLGenerator.generate()` for direct questions, while `generate_analysis_data` calls `SQLGenerator.generate_analysis_data()` for analysis questions. Both initialize `sql_retry_count` to `0`, clear `sql_error`, and send the resulting query through the same `execute_sql` node. SQLExecutor applies read-only validation and opens the local SQLite database in read-only mode.
 
-If execution raises `SQLExecutionError`, the graph records a safe error message in the explicit `sql_error` state field and checks the retry budget. When a repair is available, `repair_sql` calls `SQLGenerator.repair()` with the original question, financial schema, failed SQL, and execution error. It replaces `generated_sql`, increments the explicit `sql_retry_count` state field by one, clears `sql_error`, and routes the repaired SQL back through `execute_sql`.
+If execution raises `SQLExecutionError`, the graph records the execution error in `sql_error` and checks the retry budget. Direct SQL uses `SQLGenerator.repair()`; analysis SQL uses `SQLGenerator.repair_analysis_data()`, whose prompt preserves raw input values and identifiers rather than calculating the final result. Both replace `generated_sql`, increment the shared `sql_retry_count`, clear `sql_error`, and return to `execute_sql`.
 
 `max_sql_retries` defaults to `2`. It counts repair attempts, so a request permits at most two repairs and three total SQL executions: the initial query plus two repaired queries. When that budget is exhausted, `sql_failure` raises `SQLExecutionError` with the final execution error. The graph never returns a partial SQL result.
 
 Every repaired query still passes SQLGenerator's existing read-only validation and SQLExecutor's validation and execution path. `SQLValidationError` is not retried or repaired, so forbidden write or administrative SQL cannot enter the recovery loop.
+
+After a successful analysis query, `AnalysisPlanner` receives the original question and raw `SQLQueryResult`. It selects the operation and source cells; `FinancialAnalyzer` performs the calculation or ranking. The final SQL response retains the raw rows alongside `AnalysisResult`.
 
 #### Controlled live smoke test
 
@@ -665,21 +708,36 @@ sql_retry_count = 1
 
 This verifies the controlled generate → execute → repair → execute path for that case. It is not a general SQL-repair accuracy benchmark.
 
+#### Live end-to-end agent smoke tests
+
+Live runs through the agent workflow and local demo data produced these observations:
+
+| Question or task | Route and observed result |
+| --- | --- |
+| Apple 2025 revenue | Direct SQL: `revenue_musd = 416161` |
+| Apple revenue percentage change, 2024 to 2025 | Analysis: raw `391035` and `416161`; `percentage_change ≈ 6.4255%` |
+| Apple revenue absolute change, 2024 to 2025 | Analysis: `25126` million USD |
+| Apple vs. Microsoft 2025 revenue difference | Analysis: `134437` million USD |
+| Rank Apple and Microsoft by 2025 revenue | Analysis: Apple before Microsoft |
+| Apple risk question | RAG: source-grounded filing evidence |
+
+These are live end-to-end smoke tests of selected cases, not an analysis or routing accuracy benchmark.
+
 ## Known Limitations
 
 * Each request selects one route: RAG **or** SQL. Mixed-intent questions requiring both are not yet supported.
 * The SQL route does not consume API metadata filters as structured SQL constraints. Put required company and year information in the natural-language question.
 * SQLite remains the local structured-data backend.
-* There is no Python analysis, chart, or report workflow yet.
-* There is no Databricks integration yet.
+* Chart generation and report synthesis are not implemented.
+* There is no Databricks integration or persistence/checkpointing yet.
 
 ## Roadmap
 
 1. [x] Add bounded SQL repair and retry in the graph.
-2. [ ] Add multi-step analysis and reporting, including mixed SQL/RAG questions and later Python analysis, charts, and reports.
-3. [ ] Continue expanding the retrieval benchmark and evaluating retrieval changes against it.
-
-Other future integrations, including Databricks, remain outside Agent v1.
+2. [x] Add direct/analysis SQL classification, raw-data SQL generation and repair, structured planning, and deterministic Python financial analysis.
+3. [ ] Support mixed RAG + SQL requests, chart generation, and report synthesis.
+4. [ ] Add structured SQL constraints for API metadata and explore Databricks integration and persistence/checkpointing.
+5. [ ] Continue expanding the retrieval benchmark and evaluating retrieval changes against it.
 
 ## Milestones
 
@@ -715,8 +773,16 @@ Other future integrations, including Databricks, remain outside Agent v1.
 * `POST /agent/ask` with distinct typed RAG and SQL responses
 * Two curated routing evaluations totaling 60/60 correct decisions
 
+### Python Financial Analysis — Completed
+
+* SQL task classification into direct or analysis mode within the existing SQL route
+* Raw analysis-data SQL generation and bounded analysis-specific repair
+* Structured `AnalysisPlanner` row/column selection
+* Deterministic `FinancialAnalyzer` operations: absolute change, percentage change, difference, and ranking
+* Typed `AnalysisResult` returned alongside raw SQL evidence from `POST /agent/ask`
+
 ## Status
 
 FinResearch AI is under active development.
 
-Agent v1 and bounded SQL self-repair are implemented. Multi-step analysis and reporting are next; retrieval improvements continue to be evaluated against labeled evidence.
+Agent v1, bounded SQL repair, and the Python financial-analysis workflow are implemented. Mixed evidence workflows, charts, and reports remain future work; retrieval improvements continue to be evaluated against labeled evidence.
