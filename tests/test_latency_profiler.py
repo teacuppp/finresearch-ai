@@ -95,6 +95,20 @@ def test_calls_increment_indexes_and_aggregate_in_first_execution_order():
     assert [stage.failures for stage in stages] == [0, 0]
 
 
+def test_retrieval_planning_and_sql_building_stages_are_recorded():
+    planner = Worker(result=object())
+    builder = Worker(result="SELECT 1")
+    collector = TimingCollector(clock_from([1, 1.2, 2, 2.1]))
+    collector.wrap_method(planner, "run", "analysis_retrieval.plan")
+    collector.wrap_method(builder, "run", "analysis_sql.build")
+
+    retrieval_plan = planner.run("question")
+    assert builder.run(retrieval_plan) == "SELECT 1"
+    assert [item.stage for item in summarize(collector.records)] == [
+        "analysis_retrieval.plan", "analysis_sql.build",
+    ]
+
+
 def test_failed_and_successful_repeated_calls_are_both_included_in_aggregate():
     worker = Worker(result="ok", error=ValueError("first"))
     collector = TimingCollector(clock_from([0, 0.1, 1, 1.2]))

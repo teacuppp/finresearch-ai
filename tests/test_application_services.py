@@ -21,12 +21,18 @@ def test_composition_exposes_agent_and_reuses_query_service(
     graph = Mock()
     graph.invoke.return_value = {"route": "rag", "answer": "Answer", "sources": []}
     classifier = object()
+    retrieval_planner = object()
+    sql_builder = object()
     planner = object()
     analyzer = object()
     classifier_factory = Mock(return_value=classifier)
+    retrieval_planner_factory = Mock(return_value=retrieval_planner)
+    sql_builder_factory = Mock(return_value=sql_builder)
     planner_factory = Mock(return_value=planner)
     analyzer_factory = Mock(return_value=analyzer)
     monkeypatch.setattr(rag_service, "SQLAnalysisClassifier", classifier_factory)
+    monkeypatch.setattr(rag_service, "AnalysisRetrievalPlanner", retrieval_planner_factory)
+    monkeypatch.setattr(rag_service, "AnalysisSQLBuilder", sql_builder_factory)
     monkeypatch.setattr(rag_service, "AnalysisPlanner", planner_factory)
     monkeypatch.setattr(rag_service, "FinancialAnalyzer", analyzer_factory)
     chart_factories = {
@@ -150,6 +156,8 @@ def test_composition_exposes_agent_and_reuses_query_service(
     services.agent_service.ask("Second question")
     assert graph.invoke.call_count == 2
     classifier_factory.assert_called_once_with()
+    retrieval_planner_factory.assert_called_once_with()
+    sql_builder_factory.assert_called_once_with()
     planner_factory.assert_called_once_with()
     analyzer_factory.assert_called_once_with()
     for factory in chart_factories.values():
@@ -161,6 +169,8 @@ def test_composition_exposes_agent_and_reuses_query_service(
         sql_generator=sql_generator,
         sql_executor=sql_executor,
         sql_analysis_classifier=classifier,
+        analysis_retrieval_planner=retrieval_planner,
+        analysis_sql_builder=sql_builder,
         analysis_planner=planner,
         financial_analyzer=analyzer,
         chart_data_builder=chart_factories["ChartDataBuilder"].return_value,

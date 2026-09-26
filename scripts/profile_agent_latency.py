@@ -20,6 +20,8 @@ from app.analysis.chart_renderer import ChartArtifact, ChartRenderer, ChartSpec
 from app.analysis.financial_analyzer import AnalysisOperation, AnalysisResult, FinancialAnalyzer
 from app.analysis.intent import SQLAnalysisClassifier
 from app.analysis.planner import AnalysisPlanner
+from app.analysis.retrieval import AnalysisRetrievalPlanner
+from app.analysis.sql_builder import AnalysisSQLBuilder
 from app.services.agent_service import AgentResult, AgentService
 
 
@@ -223,6 +225,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
 
     router = LLMQuestionRouter()
     sql_analysis_classifier = SQLAnalysisClassifier()
+    analysis_retrieval_planner = AnalysisRetrievalPlanner()
+    analysis_sql_builder = AnalysisSQLBuilder()
     sql_generator = SQLGenerator()
     sql_executor = SQLExecutor(database_path=DATABASE_PATH)
     analysis_planner = AnalysisPlanner()
@@ -236,6 +240,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
     for component, method, stage in (
         (router, "route", "router.route"),
         (sql_analysis_classifier, "classify", "sql_analysis.classify"),
+        (analysis_retrieval_planner, "plan", "analysis_retrieval.plan"),
+        (analysis_sql_builder, "build", "analysis_sql.build"),
         (chart_intent_classifier, "classify", "chart_intent.classify"),
         (sql_generator, "generate", "sql.generate"),
         (sql_generator, "generate_analysis_data", "sql.generate_analysis_data"),
@@ -260,6 +266,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
         sql_generator=sql_generator,
         sql_executor=sql_executor,
         sql_analysis_classifier=sql_analysis_classifier,
+        analysis_retrieval_planner=analysis_retrieval_planner,
+        analysis_sql_builder=analysis_sql_builder,
         analysis_planner=analysis_planner,
         financial_analyzer=financial_analyzer,
         chart_data_builder=chart_data_builder,

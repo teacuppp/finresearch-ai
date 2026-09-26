@@ -34,6 +34,8 @@ from app.analysis.planner import (
     PercentageChangePlan,
     RankingPlan,
 )
+from app.analysis.retrieval import AnalysisRetrievalPlanner
+from app.analysis.sql_builder import AnalysisSQLBuilder
 from app.services.query_service import QueryService
 
 
@@ -62,6 +64,8 @@ def build_agent_graph(
     max_sql_retries: int = 2,
     *,
     sql_analysis_classifier: SQLAnalysisClassifier,
+    analysis_retrieval_planner: AnalysisRetrievalPlanner,
+    analysis_sql_builder: AnalysisSQLBuilder,
     analysis_planner: AnalysisPlanner,
     financial_analyzer: FinancialAnalyzer,
     chart_data_builder: ChartDataBuilder,
@@ -136,10 +140,12 @@ def build_agent_graph(
         }
 
     def generate_analysis_data(state: AgentState) -> dict[str, object]:
-        generated_sql = sql_generator.generate_analysis_data(
+        retrieval_plan = analysis_retrieval_planner.plan(
             question=state["question"],
-            schema=FINANCIAL_SCHEMA,
             operation=state["analysis_operation"],
+        )
+        generated_sql = analysis_sql_builder.build(
+            retrieval_plan, state["analysis_operation"]
         )
         return {
             "generated_sql": generated_sql,

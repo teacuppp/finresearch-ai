@@ -12,6 +12,8 @@ from app.analysis.chart_renderer import ChartRenderer
 from app.analysis.financial_analyzer import FinancialAnalyzer
 from app.analysis.intent import SQLAnalysisClassifier
 from app.analysis.planner import AnalysisPlanner
+from app.analysis.retrieval import AnalysisRetrievalPlanner
+from app.analysis.sql_builder import AnalysisSQLBuilder
 from app.rag.embeddings import EmbeddingModel
 from app.rag.generator import AnswerGenerator
 from app.rag.pipeline import RAGPipeline
@@ -91,6 +93,8 @@ def create_application_services() -> (
     )
 
     sql_analysis_classifier = SQLAnalysisClassifier()
+    analysis_retrieval_planner = AnalysisRetrievalPlanner()
+    analysis_sql_builder = AnalysisSQLBuilder()
     analysis_planner = AnalysisPlanner()
     financial_analyzer = FinancialAnalyzer()
     chart_data_builder = ChartDataBuilder()
@@ -105,6 +109,8 @@ def create_application_services() -> (
         sql_generator=sql_generator,
         sql_executor=sql_executor,
         sql_analysis_classifier=sql_analysis_classifier,
+        analysis_retrieval_planner=analysis_retrieval_planner,
+        analysis_sql_builder=analysis_sql_builder,
         analysis_planner=analysis_planner,
         financial_analyzer=financial_analyzer,
         chart_data_builder=chart_data_builder,

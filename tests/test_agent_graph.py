@@ -34,6 +34,8 @@ from app.analysis.planner import (
     AbsoluteChangePlan, AnalysisPlanner, AnalysisPlanningError,
     DifferencePlan, PercentageChangePlan, RankingPlan,
 )
+from app.analysis.retrieval import AnalysisRetrievalPlan, AnalysisRetrievalPlanner
+from app.analysis.sql_builder import AnalysisSQLBuilder
 
 
 INITIAL_SQL = "SELECT revenue_musd FROM financial_metrics"
@@ -179,6 +181,8 @@ def _graph_with_fakes(
     classifier=None,
     planner=None,
     analyzer=None,
+    retrieval_planner=None,
+    sql_builder=None,
     chart_dependencies=None,
 ):
     router = FakeRouter(route)
@@ -196,6 +200,17 @@ def _graph_with_fakes(
             classifier if classifier is not None
             else Mock(spec=SQLAnalysisClassifier,
                       classify=Mock(return_value=DirectSQLTask(mode="direct")))
+        ),
+        analysis_retrieval_planner=(
+            retrieval_planner if retrieval_planner is not None
+            else Mock(spec=AnalysisRetrievalPlanner, plan=Mock(return_value=AnalysisRetrievalPlan(
+                entity_column="ticker", entities=("AAPL",),
+                fiscal_years=(2024, 2025), metric="revenue_musd",
+            )))
+        ),
+        analysis_sql_builder=(
+            sql_builder if sql_builder is not None
+            else Mock(spec=AnalysisSQLBuilder, build=Mock(return_value=RAW_SQL))
         ),
         analysis_planner=(
             planner if planner is not None
@@ -707,12 +722,26 @@ def _analysis_dependencies(operation=AnalysisOperation.PERCENTAGE_CHANGE):
             operation=operation, column="revenue_musd",
             direction=RankingDirection.DESCENDING,
         )
+    if operation in (AnalysisOperation.ABSOLUTE_CHANGE, AnalysisOperation.PERCENTAGE_CHANGE):
+        retrieval_plan = AnalysisRetrievalPlan(
+            entity_column="ticker", entities=("AAPL",),
+            fiscal_years=(2024, 2025), metric="revenue_musd",
+        )
+    else:
+        retrieval_plan = AnalysisRetrievalPlan(
+            entity_column="ticker", entities=("AAPL", "MSFT"),
+            fiscal_years=(2025,), metric="revenue_musd",
+        )
     return {
         "classifier": Mock(spec=SQLAnalysisClassifier, classify=Mock(
             return_value=AnalysisSQLTask(mode="analysis", operation=operation)
         )),
         "planner": Mock(spec=AnalysisPlanner, plan=Mock(return_value=plan)),
         "analyzer": Mock(spec=FinancialAnalyzer, wraps=FinancialAnalyzer()),
+        "retrieval_planner": Mock(spec=AnalysisRetrievalPlanner, plan=Mock(
+            return_value=retrieval_plan
+        )),
+        "sql_builder": Mock(spec=AnalysisSQLBuilder, build=Mock(return_value=RAW_SQL)),
     }
 
 
@@ -729,9 +758,13 @@ def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
     result = graph.invoke({"question": question})
 
     dependencies["classifier"].classify.assert_called_once_with(question)
-    assert generator.analysis_calls == [{
-        "question": question, "schema": FINANCIAL_SCHEMA, "operation": operation,
-    }]
+    dependencies["retrieval_planner"].plan.assert_called_once_with(
+        question=question, operation=operation,
+    )
+    dependencies["sql_builder"].build.assert_called_once_with(
+        dependencies["retrieval_planner"].plan.return_value, operation,
+    )
+    assert generator.analysis_calls == []
     assert generator.calls == generator.repair_calls == []
     assert executor.calls == [{"sql": RAW_SQL, "parameters": ()}]
     dependencies["planner"].plan.assert_called_once_with(
@@ -787,6 +820,28 @@ def test_analysis_graph_has_explicit_generation_planning_and_execution_nodes():
     ]
 
 
+def test_analysis_graph_passes_deterministically_built_sql_to_executor():
+    dependencies = _analysis_dependencies()
+    dependencies["sql_builder"] = AnalysisSQLBuilder()
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql", execution_outcomes=[_raw_result()], **dependencies,
+    )
+
+    result = graph.invoke({"question": "Apple revenue growth"})
+
+    assert executor.calls == [{
+        "sql": (
+            "SELECT company, ticker, fiscal_year, revenue_musd\n"
+            "FROM financial_metrics\n"
+            "WHERE ticker = 'AAPL' AND fiscal_year IN (2024, 2025)\n"
+            "ORDER BY fiscal_year"
+        ),
+        "parameters": (),
+    }]
+    assert result["generated_sql"] == executor.calls[0]["sql"]
+    assert generator.analysis_calls == generator.calls == []
+
+
 @pytest.mark.parametrize("route", ["rag", "sql"])
 def test_rag_and_direct_sql_skip_analysis_components(route):
     dependencies = _analysis_dependencies()
@@ -798,6 +853,8 @@ def test_rag_and_direct_sql_skip_analysis_components(route):
     assert dependencies["classifier"].classify.call_count == (route == "sql")
     assert dependencies["planner"].mock_calls == []
     assert dependencies["analyzer"].mock_calls == []
+    assert dependencies["retrieval_planner"].mock_calls == []
+    assert dependencies["sql_builder"].mock_calls == []
     assert generator.analysis_calls == generator.analysis_repair_calls == []
     assert not any(key.startswith("analysis_") for key in result)
     assert len(generator.calls) == (route == "sql")
@@ -854,7 +911,9 @@ def test_analysis_retry_budget_can_succeed_on_last_allowed_execution(budget):
 
     result = graph.invoke({"question": "Growth?"})
 
-    assert len(generator.analysis_calls) == 1
+    assert generator.analysis_calls == []
+    dependencies["retrieval_planner"].plan.assert_called_once()
+    dependencies["sql_builder"].build.assert_called_once()
     assert len(generator.analysis_repair_calls) == budget
     assert len(executor.calls) == budget + 1
     assert result["sql_retry_count"] == budget
