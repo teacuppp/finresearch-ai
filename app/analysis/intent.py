@@ -101,6 +101,7 @@ class SQLAnalysisClassifier:
                 ],
                 response_format=SQLTaskResponse,
                 temperature=0,
+                reasoning_effort="none",
             )
         except Exception as exc:
             raise SQLAnalysisClassificationError(

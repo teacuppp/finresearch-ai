@@ -112,6 +112,7 @@ def test_original_question_is_sent_to_model():
     }
     assert call["model"] == "qwen3:4b"
     assert call["temperature"] == 0
+    assert call["reasoning_effort"] == "none"
     assert call["response_format"] is RouteDecision
 
 
