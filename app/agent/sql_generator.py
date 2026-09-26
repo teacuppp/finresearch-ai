@@ -1,4 +1,5 @@
 import re
+from typing import Literal, TypeAlias
 
 from openai import OpenAI
 
@@ -55,6 +56,50 @@ SELECT net_income_musd
 FROM financial_metrics
 WHERE ticker = 'MSFT'
   AND fiscal_year = 2025
+""".strip()
+
+
+SQLResultMode: TypeAlias = Literal["answer", "chart_ready"]
+
+
+CHART_READY_SQL_SYSTEM_PROMPT = """
+You generate chart-ready SQLite queries that answer the user's financial
+question while preserving the relevant dimensions in the result rows.
+Generate exactly one read-only SELECT or WITH ... SELECT statement using only
+tables and columns in the supplied schema. Do not invent columns.
+
+For comparisons between entities or categories, select a human-readable
+category/context column, preferably company when available, otherwise ticker
+or symbol when appropriate, together with the requested numeric metric. Do
+not return only the metric for a multi-company comparison.
+
+For an explicit visualization of one entity and value, include a relevant
+category/context column and the requested numeric metric even when the query
+returns just one row. For example, plotting Apple's 2025 revenue should
+return company or ticker together with revenue_musd, not only revenue_musd.
+
+For a trend across fiscal years, include fiscal_year and the requested numeric
+metric. Use ORDER BY fiscal_year when appropriate to make the temporal order
+deterministic. Do not reorder categories merely to make a prettier chart.
+
+Select only context and dimension columns relevant to the visualization.
+Do not SELECT *. Preserve the user's financial semantics. If the schema has
+no useful chart dimension, generate the best valid read-only SQL without
+inventing one; later layers decide whether a chart is possible.
+
+Use SQLite syntax. Never generate writes, schema changes, or administrative
+statements. Return SQL only: no comments, explanation, or Markdown fences.
+Do not compute chart metadata, choose bar or line, render, or generate Python.
+""".strip()
+
+
+CHART_READY_SQL_REPAIR_SYSTEM_PROMPT = f"""
+{CHART_READY_SQL_SYSTEM_PROMPT}
+
+Repair the failed query using the database error. Fix what is needed for it
+to execute against the supplied schema while preserving the chart-ready
+result shape. Do not silently drop the relevant category/context column or
+the ordered trend dimension, such as fiscal_year, or the requested metric.
 """.strip()
 
 
@@ -157,6 +202,8 @@ class SQLGenerator:
         self,
         question: str,
         schema: str,
+        *,
+        result_mode: SQLResultMode = "answer",
     ) -> str:
         question = question.strip()
         schema = schema.strip()
@@ -170,6 +217,9 @@ class SQLGenerator:
             raise ValueError(
                 "schema must not be empty"
             )
+
+        if result_mode not in ("answer", "chart_ready"):
+            raise ValueError("unsupported result_mode")
 
         user_prompt = f"""
 Database schema:
@@ -195,6 +245,8 @@ Return SQL only.
                         "role": "system",
                         "content": (
                             SQL_SYSTEM_PROMPT
+                            if result_mode == "answer"
+                            else CHART_READY_SQL_SYSTEM_PROMPT
                         ),
                     },
                     {
@@ -274,6 +326,8 @@ Return SQL only.
         schema: str,
         previous_sql: str,
         error_message: str,
+        *,
+        result_mode: SQLResultMode = "answer",
     ) -> str:
         question = question.strip()
         schema = schema.strip()
@@ -303,6 +357,9 @@ Return SQL only.
             raise ValueError(
                 "error_message must not be empty"
             )
+
+        if result_mode not in ("answer", "chart_ready"):
+            raise ValueError("unsupported result_mode")
 
         user_prompt = f"""
 Database schema:
@@ -338,6 +395,8 @@ Return SQL only.
                         "role": "system",
                         "content": (
                             SQL_SYSTEM_PROMPT
+                            if result_mode == "answer"
+                            else CHART_READY_SQL_REPAIR_SYSTEM_PROMPT
                         ),
                     },
                     {
