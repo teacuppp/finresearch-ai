@@ -29,6 +29,15 @@ def test_composition_exposes_agent_and_reuses_query_service(
     monkeypatch.setattr(rag_service, "SQLAnalysisClassifier", classifier_factory)
     monkeypatch.setattr(rag_service, "AnalysisPlanner", planner_factory)
     monkeypatch.setattr(rag_service, "FinancialAnalyzer", analyzer_factory)
+    chart_factories = {
+        name: Mock(return_value=object())
+        for name in (
+            "ChartDataBuilder", "ChartIntentClassifier", "ChartDecisionPolicy",
+            "ChartPlanner", "ChartRenderer",
+        )
+    }
+    for name, factory in chart_factories.items():
+        monkeypatch.setattr(rag_service, name, factory)
 
     embedding_factory = Mock(
         return_value=embedding_model
@@ -143,6 +152,8 @@ def test_composition_exposes_agent_and_reuses_query_service(
     classifier_factory.assert_called_once_with()
     planner_factory.assert_called_once_with()
     analyzer_factory.assert_called_once_with()
+    for factory in chart_factories.values():
+        factory.assert_called_once_with()
 
     graph_builder.assert_called_once_with(
         router=question_router,
@@ -152,6 +163,11 @@ def test_composition_exposes_agent_and_reuses_query_service(
         sql_analysis_classifier=classifier,
         analysis_planner=planner,
         financial_analyzer=analyzer,
+        chart_data_builder=chart_factories["ChartDataBuilder"].return_value,
+        chart_intent_classifier=chart_factories["ChartIntentClassifier"].return_value,
+        chart_decision_policy=chart_factories["ChartDecisionPolicy"].return_value,
+        chart_planner=chart_factories["ChartPlanner"].return_value,
+        chart_renderer=chart_factories["ChartRenderer"].return_value,
     )
     sql_executor_factory.assert_called_once_with(
         database_path=(

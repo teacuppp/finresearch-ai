@@ -5,6 +5,10 @@ from app.agent.graph import build_agent_graph
 from app.agent.router import LLMQuestionRouter
 from app.agent.sql_executor import SQLExecutor
 from app.agent.sql_generator import SQLGenerator
+from app.analysis.chart_data import ChartDataBuilder
+from app.analysis.chart_decision import ChartDecisionPolicy, ChartIntentClassifier
+from app.analysis.chart_planner import ChartPlanner
+from app.analysis.chart_renderer import ChartRenderer
 from app.analysis.financial_analyzer import FinancialAnalyzer
 from app.analysis.intent import SQLAnalysisClassifier
 from app.analysis.planner import AnalysisPlanner
@@ -89,6 +93,11 @@ def create_application_services() -> (
     sql_analysis_classifier = SQLAnalysisClassifier()
     analysis_planner = AnalysisPlanner()
     financial_analyzer = FinancialAnalyzer()
+    chart_data_builder = ChartDataBuilder()
+    chart_intent_classifier = ChartIntentClassifier()
+    chart_decision_policy = ChartDecisionPolicy()
+    chart_planner = ChartPlanner()
+    chart_renderer = ChartRenderer()
 
     agent_graph = build_agent_graph(
         router=question_router,
@@ -98,6 +107,11 @@ def create_application_services() -> (
         sql_analysis_classifier=sql_analysis_classifier,
         analysis_planner=analysis_planner,
         financial_analyzer=financial_analyzer,
+        chart_data_builder=chart_data_builder,
+        chart_intent_classifier=chart_intent_classifier,
+        chart_decision_policy=chart_decision_policy,
+        chart_planner=chart_planner,
+        chart_renderer=chart_renderer,
     )
 
     agent_service = AgentService(

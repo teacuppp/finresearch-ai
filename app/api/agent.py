@@ -7,6 +7,10 @@ from app.agent.graph import UnsupportedRouteError
 from app.agent.router import QuestionRoutingError
 from app.agent.sql_executor import SQLExecutionError, SQLValidationError
 from app.agent.sql_generator import SQLGenerationError
+from app.analysis.chart_data import ChartDataError
+from app.analysis.chart_decision import ChartDecisionError
+from app.analysis.chart_planner import ChartPlanningError
+from app.analysis.chart_renderer import ChartRenderingError
 from app.analysis.financial_analyzer import AnalysisError, AnalysisOperation
 from app.analysis.intent import SQLAnalysisClassificationError
 from app.analysis.planner import AnalysisPlanningError
@@ -100,6 +104,10 @@ def ask_question(
         SQLAnalysisClassificationError,
         AnalysisPlanningError,
         AnalysisError,
+        ChartDataError,
+        ChartDecisionError,
+        ChartPlanningError,
+        ChartRenderingError,
     ) as exc:
         raise HTTPException(
             status_code=502,
