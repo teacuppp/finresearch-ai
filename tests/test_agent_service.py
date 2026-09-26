@@ -1,6 +1,7 @@
 import pytest
 
 from app.agent.sql_executor import SQLQueryResult
+from app.analysis.chart_renderer import ChartArtifact, ChartSpec, ChartType
 from app.analysis.financial_analyzer import AnalysisOperation, AnalysisResult
 from app.rag.models import RetrievedChunk
 from app.services.agent_service import (
@@ -100,6 +101,7 @@ def test_maps_rag_graph_result():
     assert result.sources == [source]
     assert result.generated_sql is None
     assert result.sql_result is None
+    assert result.chart_spec is result.chart_artifact is None
 
 
 def test_maps_sql_graph_result():
@@ -134,6 +136,7 @@ def test_maps_sql_graph_result():
     assert result.sql_result == sql_result
     assert result.answer is None
     assert result.sources == []
+    assert result.chart_spec is result.chart_artifact is None
 
 
 def test_service_state_does_not_leak_between_calls():
@@ -351,3 +354,56 @@ def test_analysis_then_direct_service_calls_use_fresh_state():
     assert second.analysis_result is None
     assert graph.calls[0] is not graph.calls[1]
     assert all("analysis_result" not in state for state in graph.calls)
+
+
+def _chart_spec():
+    return ChartSpec(
+        chart_type=ChartType.BAR, x_column="company", y_column="revenue_musd",
+        title="Revenue",
+    )
+
+
+def test_maps_chart_objects_and_then_no_chart_without_state_leak():
+    spec = _chart_spec()
+    artifact = ChartArtifact(media_type="image/png", content=b"fake png")
+    sql_result = SQLQueryResult(
+        columns=["company", "revenue_musd"],
+        rows=[{"company": "Apple", "revenue_musd": 416161}], row_count=1,
+    )
+    state = {
+        "route": "sql", "generated_sql": "SELECT company, revenue_musd FROM financial_metrics",
+        "sql_result": sql_result,
+    }
+    graph = FakeGraph([
+        {**state, "chart_spec": spec, "chart_artifact": artifact},
+        {**state, "chart_spec": None, "chart_artifact": None},
+    ])
+    service = AgentService(graph)
+
+    first = service.ask("Plot Apple's revenue.")
+    second = service.ask("What was Apple's revenue?")
+
+    assert first.chart_spec is spec
+    assert first.chart_artifact is artifact
+    assert first.sql_result is sql_result
+    assert second.chart_spec is second.chart_artifact is None
+    assert all("chart_spec" not in initial for initial in graph.calls)
+    assert all("chart_artifact" not in initial for initial in graph.calls)
+
+
+@pytest.mark.parametrize("chart_fields", [
+    {"chart_spec": _chart_spec()},
+    {"chart_artifact": ChartArtifact(media_type="image/png", content=b"png")},
+    {"chart_spec": object(), "chart_artifact": ChartArtifact(media_type="image/png", content=b"png")},
+    {"chart_spec": _chart_spec(), "chart_artifact": {"media_type": "image/png", "content": b"png"}},
+    {"chart_spec": "bar", "chart_artifact": b"png"},
+])
+def test_incoherent_chart_fields_are_rejected(chart_fields):
+    state = {
+        "route": "sql", "generated_sql": "SELECT 1",
+        "sql_result": SQLQueryResult(columns=["1"], rows=[{"1": 1}], row_count=1),
+        **chart_fields,
+    }
+
+    with pytest.raises(InvalidAgentResultError, match="inconsistent chart fields"):
+        AgentService(FakeGraph([state])).ask("Plot revenue.")

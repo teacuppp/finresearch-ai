@@ -15,6 +15,14 @@ from app.agent.sql_executor import (
 from app.rag.models import RetrievedChunk
 from app.rag.pipeline import RAGResult
 from app.services.agent_service import AgentService
+from app.analysis.chart_data import ChartDataBuilder, ChartDataError
+from app.analysis.chart_decision import (
+    ChartDecisionError, ChartDecisionPolicy, ChartIntentClassifier, ChartIntentResponse,
+)
+from app.analysis.chart_planner import ChartPlanner, ChartPlanningError
+from app.analysis.chart_renderer import (
+    ChartArtifact, ChartRenderer, ChartRenderingError, ChartSpec, ChartType,
+)
 from app.analysis.financial_analyzer import (
     AnalysisError, AnalysisOperation, FinancialAnalyzer, RankingDirection,
 )
@@ -88,10 +96,11 @@ class FakeSQLGenerator:
         self.analysis_calls = []
         self.analysis_repair_calls = []
 
-    def generate(self, question: str, schema: str) -> str:
+    def generate(self, question: str, schema: str, *, result_mode="answer") -> str:
         self.calls.append({
             "question": question,
             "schema": schema,
+            "result_mode": result_mode,
         })
 
         return INITIAL_SQL
@@ -102,12 +111,15 @@ class FakeSQLGenerator:
         schema: str,
         previous_sql: str,
         error_message: str,
+        *,
+        result_mode="answer",
     ) -> str:
         self.repair_calls.append({
             "question": question,
             "schema": schema,
             "previous_sql": previous_sql,
             "error_message": error_message,
+            "result_mode": result_mode,
         })
         return next(self.repaired_sqls)
 
@@ -167,6 +179,7 @@ def _graph_with_fakes(
     classifier=None,
     planner=None,
     analyzer=None,
+    chart_dependencies=None,
 ):
     router = FakeRouter(route)
     query_service = FakeQueryService()
@@ -193,6 +206,7 @@ def _graph_with_fakes(
             analyzer if analyzer is not None
             else Mock(spec=FinancialAnalyzer)
         ),
+        **(_chart_dependencies() if chart_dependencies is None else chart_dependencies),
     )
 
     return (
@@ -204,14 +218,32 @@ def _graph_with_fakes(
     )
 
 
+def _chart_dependencies(intent="lookup"):
+    return {
+        "chart_data_builder": Mock(spec=ChartDataBuilder, wraps=ChartDataBuilder()),
+        "chart_intent_classifier": Mock(spec=ChartIntentClassifier, classify=Mock(
+            return_value=ChartIntentResponse(intent=intent)
+        )),
+        "chart_decision_policy": Mock(spec=ChartDecisionPolicy, wraps=ChartDecisionPolicy()),
+        "chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
+            chart_type=ChartType.BAR, x_column="ticker", y_column="revenue_musd",
+            title="Revenue",
+        ))),
+        "chart_renderer": Mock(spec=ChartRenderer, render=Mock(return_value=ChartArtifact(
+            media_type="image/png", content=b"fake png",
+        ))),
+    }
+
+
 def test_rag_route_delegates_to_query_service():
+    charts = _chart_dependencies()
     (
         graph,
         router,
         query_service,
         sql_generator,
         sql_executor,
-    ) = _graph_with_fakes("rag")
+    ) = _graph_with_fakes("rag", chart_dependencies=charts)
 
     question = "What risks did Apple disclose?"
     result = graph.invoke({"question": question})
@@ -232,6 +264,8 @@ def test_rag_route_delegates_to_query_service():
     assert result["route"] == "rag"
     assert result["answer"] == f"RAG answer for {question} [Source 1]"
     assert len(result["sources"]) == 1
+    assert all(component.mock_calls == [] for component in charts.values())
+    assert not any(key.startswith("chart_") for key in result)
 
 
 def test_rag_route_forwards_query_options_unchanged():
@@ -290,6 +324,7 @@ def test_sql_route_delegates_to_generator_and_executor():
         {
             "question": question,
             "schema": FINANCIAL_SCHEMA,
+            "result_mode": "answer",
         }
     ]
     assert sql_executor.calls == [
@@ -333,6 +368,7 @@ def test_sql_route_ignores_rag_query_options():
     assert sql_generator.calls == [{
         "question": question,
         "schema": FINANCIAL_SCHEMA,
+        "result_mode": "answer",
     }]
     assert len(sql_executor.calls) == 1
     assert result["route"] == "sql"
@@ -360,12 +396,14 @@ def test_first_sql_repair_succeeds_with_final_sql_and_result():
     assert generator.calls == [{
         "question": question,
         "schema": FINANCIAL_SCHEMA,
+        "result_mode": "answer",
     }]
     assert generator.repair_calls == [{
         "question": question,
         "schema": FINANCIAL_SCHEMA,
         "previous_sql": INITIAL_SQL,
         "error_message": "no such column: revenue",
+        "result_mode": "answer",
     }]
     assert [call["sql"] for call in executor.calls] == [
         INITIAL_SQL,
@@ -681,9 +719,10 @@ def _analysis_dependencies(operation=AnalysisOperation.PERCENTAGE_CHANGE):
 @pytest.mark.parametrize("operation", list(AnalysisOperation))
 def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
     dependencies = _analysis_dependencies(operation)
+    charts = _chart_dependencies()
     raw = _raw_result()
     graph, _, query, generator, executor = _graph_with_fakes(
-        "sql", execution_outcomes=[raw], **dependencies
+        "sql", execution_outcomes=[raw], chart_dependencies=charts, **dependencies
     )
     question = "Analyze these financial values"
 
@@ -721,6 +760,16 @@ def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
     assert result["sql_retry_count"] == 0
     assert result["sql_error"] is None
     assert query.calls == []
+    charts["chart_intent_classifier"].classify.assert_not_called()
+    charts["chart_data_builder"].build.assert_called_once_with(
+        raw, analysis_result=result["analysis_result"],
+    )
+    if operation is not AnalysisOperation.RANKING:
+        assert result["chart_data"] is None
+        assert "chart_intent" not in result
+        assert "chart_artifact" not in result
+        for name in ("chart_decision_policy", "chart_planner", "chart_renderer"):
+            assert charts[name].mock_calls == []
 
 
 def test_analysis_graph_has_explicit_generation_planning_and_execution_nodes():
@@ -734,6 +783,7 @@ def test_analysis_graph_has_explicit_generation_planning_and_execution_nodes():
     assert [name for update in updates for name in update] == [
         "route_question", "classify_sql_task", "generate_analysis_data",
         "execute_sql", "plan_analysis", "execute_analysis",
+        "prepare_chart_data",
     ]
 
 
@@ -927,3 +977,237 @@ def test_unexpected_sql_classifier_decision_fails_without_generating_sql():
         graph.invoke({"question": "Growth?"})
 
     assert generator.calls == generator.analysis_calls == executor.calls == []
+
+
+@pytest.mark.parametrize("question,intent,rows,mode,decision", [
+    ("What was Apple's 2025 revenue?", "lookup", 1, "answer", "none"),
+    ("List Apple and Microsoft revenue rows.", "list", 2, "answer", "none"),
+    ("Plot Apple's 2025 revenue.", "lookup", 1, "chart_ready", "chart"),
+    ("Compare Apple and Microsoft revenue.", "comparison", 2, "chart_ready", "chart"),
+    ("Show Apple's revenue trend.", "trend", 2, "chart_ready", "chart"),
+    ("Rank the revenue rows.", "ranking", 2, "chart_ready", "chart"),
+    ("Plot Apple's revenue trend.", "trend", 1, "chart_ready", "none"),
+    ("Plot Apple's 2025 revenue.", "lookup", 0, "chart_ready", "none"),
+])
+def test_direct_chart_intent_controls_sql_mode_and_post_execution_chart(
+    question, intent, rows, mode, decision
+):
+    charts = _chart_dependencies(intent)
+    raw = _raw_result()
+    raw.rows = raw.rows[:rows]
+    raw.row_count = len(raw.rows)
+    graph, _, _, generator, _ = _graph_with_fakes(
+        "sql", execution_outcomes=[raw], chart_dependencies=charts,
+    )
+
+    result = graph.invoke({"question": question})
+
+    charts["chart_intent_classifier"].classify.assert_called_once_with(question)
+    assert result["sql_result_mode"] == mode
+    assert generator.calls == [{
+        "question": question, "schema": FINANCIAL_SCHEMA, "result_mode": mode,
+    }]
+    assert result["explicit_visualization"] == question.startswith("Plot")
+    assert result["chart_data"] is raw
+    assert result["sql_result"] is raw
+    charts["chart_data_builder"].build.assert_called_once_with(raw, analysis_result=None)
+    charts["chart_decision_policy"].decide.assert_called_once_with(
+        result["chart_intent"], raw,
+        explicit_visualization=result["explicit_visualization"],
+    )
+    assert result["chart_decision"] == decision
+    if decision == "chart":
+        spec = charts["chart_planner"].plan.return_value
+        charts["chart_planner"].plan.assert_called_once_with(question=question, sql_result=raw)
+        charts["chart_renderer"].render.assert_called_once_with(raw, spec)
+        assert result["chart_spec"] is spec
+        assert result["chart_artifact"] is charts["chart_renderer"].render.return_value
+    else:
+        charts["chart_planner"].plan.assert_not_called()
+        charts["chart_renderer"].render.assert_not_called()
+        assert "chart_spec" not in result
+        assert "chart_artifact" not in result
+
+
+def test_chart_ready_direct_repair_keeps_mode_and_continues_chart_pipeline():
+    charts = _chart_dependencies("lookup")
+    raw = _raw_result()
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql", repaired_sqls=[FIRST_REPAIR],
+        execution_outcomes=[SQLExecutionError("no such column: revenue"), raw],
+        chart_dependencies=charts,
+    )
+
+    result = AgentService(graph).ask("Plot Apple's revenue.")
+
+    assert generator.calls[0]["result_mode"] == "chart_ready"
+    assert generator.repair_calls == [{
+        "question": "Plot Apple's revenue.", "schema": FINANCIAL_SCHEMA,
+        "previous_sql": INITIAL_SQL, "error_message": "no such column: revenue",
+        "result_mode": "chart_ready",
+    }]
+    assert generator.analysis_repair_calls == []
+    assert [call["sql"] for call in executor.calls] == [INITIAL_SQL, FIRST_REPAIR]
+    assert result.generated_sql == FIRST_REPAIR
+    assert result.sql_result is raw
+    assert result.chart_spec is charts["chart_planner"].plan.return_value
+    assert result.chart_artifact is charts["chart_renderer"].render.return_value
+
+
+@pytest.mark.parametrize("rows", [1, 2])
+def test_ranking_charts_ranked_rows_and_service_preserves_raw_rows(rows):
+    dependencies = _analysis_dependencies(AnalysisOperation.RANKING)
+    charts = _chart_dependencies()
+    raw = SQLQueryResult(
+        columns=["company", "revenue_musd"],
+        rows=[
+            {"company": "Microsoft", "revenue_musd": 281724},
+            {"company": "Apple", "revenue_musd": 416161},
+        ][:rows],
+        row_count=rows,
+    )
+    graph, *_ = _graph_with_fakes(
+        "sql", execution_outcomes=[raw], chart_dependencies=charts, **dependencies,
+    )
+    question = "Rank Apple and Microsoft by revenue."
+
+    result = AgentService(graph).ask(question)
+
+    assert result.sql_result is raw
+    assert result.sql_result.rows[0]["company"] == "Microsoft"
+    assert result.analysis_result.operation is AnalysisOperation.RANKING
+    charts["chart_intent_classifier"].classify.assert_not_called()
+    charts["chart_data_builder"].build.assert_called_once_with(
+        raw, analysis_result=result.analysis_result,
+    )
+    decision_call = charts["chart_decision_policy"].decide.call_args
+    assert decision_call.args[0] == ChartIntentResponse(intent="ranking")
+    assert decision_call.kwargs == {"explicit_visualization": False}
+    chart_data = decision_call.args[1]
+    assert chart_data is not raw
+    assert chart_data.rows == [dict(row) for row in result.analysis_result.ranked_rows]
+    if rows == 2:
+        assert [row["company"] for row in chart_data.rows] == ["Apple", "Microsoft"]
+        charts["chart_planner"].plan.assert_called_once_with(
+            question=question, sql_result=chart_data,
+        )
+        assert charts["chart_planner"].plan.call_args.kwargs["sql_result"] is chart_data
+        charts["chart_renderer"].render.assert_called_once_with(chart_data, result.chart_spec)
+        assert charts["chart_renderer"].render.call_args.args[0] is chart_data
+        assert result.chart_artifact is charts["chart_renderer"].render.return_value
+    else:
+        charts["chart_planner"].plan.assert_not_called()
+        charts["chart_renderer"].render.assert_not_called()
+        assert result.chart_spec is result.chart_artifact is None
+
+
+def test_chart_then_non_chart_invocations_do_not_share_fields():
+    charts = _chart_dependencies()
+    graph, *_ = _graph_with_fakes("sql", chart_dependencies=charts)
+
+    first = graph.invoke({"question": "Plot Apple's revenue."})
+    second = graph.invoke({"question": "What was Apple's revenue?"})
+
+    assert first["chart_artifact"] is charts["chart_renderer"].render.return_value
+    assert first["sql_result_mode"] == "chart_ready"
+    assert second["sql_result_mode"] == "answer"
+    assert second["explicit_visualization"] is False
+    assert second["chart_decision"] == "none"
+    assert "chart_spec" not in second
+    assert "chart_artifact" not in second
+    assert charts["chart_renderer"].render.call_count == 1
+
+
+def test_ranking_chart_then_direct_invocations_keep_chart_and_analysis_state_isolated():
+    dependencies = _analysis_dependencies(AnalysisOperation.RANKING)
+    dependencies["classifier"].classify.side_effect = [
+        AnalysisSQLTask(mode="analysis", operation=AnalysisOperation.RANKING),
+        DirectSQLTask(mode="direct"),
+    ]
+    charts = _chart_dependencies()
+    graph, *_ = _graph_with_fakes(
+        "sql", execution_outcomes=[_raw_result(), _raw_result()],
+        chart_dependencies=charts, **dependencies,
+    )
+
+    first = graph.invoke({"question": "Rank revenue."})
+    second = graph.invoke({"question": "What was revenue?"})
+
+    assert first["chart_intent"] == ChartIntentResponse(intent="ranking")
+    assert "chart_artifact" in first
+    assert second["chart_intent"] == ChartIntentResponse(intent="lookup")
+    assert second["chart_decision"] == "none"
+    assert "chart_artifact" not in second
+    assert "chart_spec" not in second
+    assert not any(key.startswith("analysis_") for key in second)
+    charts["chart_intent_classifier"].classify.assert_called_once_with("What was revenue?")
+
+
+@pytest.mark.parametrize("stage,error", [
+    ("chart_intent_classifier", ChartDecisionError("intent failed")),
+    ("chart_data_builder", ChartDataError("data failed")),
+    ("chart_decision_policy", ChartDecisionError("decision failed")),
+    ("chart_planner", ChartPlanningError("planning failed")),
+    ("chart_renderer", ChartRenderingError("rendering failed")),
+])
+def test_chart_errors_propagate_without_fallback_or_retry(stage, error):
+    charts = _chart_dependencies()
+    methods = [
+        ("chart_intent_classifier", "classify"), ("chart_data_builder", "build"),
+        ("chart_decision_policy", "decide"), ("chart_planner", "plan"),
+        ("chart_renderer", "render"),
+    ]
+    stage_index = [name for name, _ in methods].index(stage)
+    getattr(charts[stage], methods[stage_index][1]).side_effect = error
+    graph, _, _, generator, _ = _graph_with_fakes("sql", chart_dependencies=charts)
+
+    with pytest.raises(type(error)) as exc:
+        AgentService(graph).ask("Plot Apple's revenue.")
+
+    assert exc.value is error
+    assert getattr(charts[stage], methods[stage_index][1]).call_count == 1
+    for name, _ in methods[stage_index + 1:]:
+        assert charts[name].mock_calls == []
+    assert generator.repair_calls == generator.analysis_repair_calls == []
+
+
+@pytest.mark.parametrize("analysis", [False, True])
+def test_high_sql_retry_budget_reaches_complete_chart_path(analysis):
+    budget = 12
+    charts = _chart_dependencies("comparison")
+    dependencies = _analysis_dependencies(AnalysisOperation.RANKING) if analysis else {}
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql", max_sql_retries=budget, repaired_sqls=[REPAIRED_RAW_SQL] * budget,
+        execution_outcomes=[SQLExecutionError("retry")] * budget + [_raw_result()],
+        chart_dependencies=charts, **dependencies,
+    )
+
+    result = graph.invoke({"question": "Compare company revenues."})
+
+    assert result["sql_retry_count"] == budget
+    assert len(executor.calls) == budget + 1
+    assert result["chart_artifact"] is charts["chart_renderer"].render.return_value
+    assert result["generated_sql"] == REPAIRED_RAW_SQL
+    if analysis:
+        assert len(generator.analysis_repair_calls) == budget
+        assert generator.repair_calls == []
+        charts["chart_intent_classifier"].classify.assert_not_called()
+    else:
+        assert len(generator.repair_calls) == budget
+        assert all(call["result_mode"] == "chart_ready" for call in generator.repair_calls)
+        assert generator.analysis_repair_calls == []
+
+
+def test_chart_graph_topology_has_explicit_preparation_decision_plan_and_render_nodes():
+    charts = _chart_dependencies("comparison")
+    graph, *_ = _graph_with_fakes(
+        "sql", execution_outcomes=[_raw_result()], chart_dependencies=charts,
+    )
+
+    updates = list(graph.stream({"question": "Compare revenue."}))
+
+    assert [name for update in updates for name in update] == [
+        "route_question", "classify_sql_task", "classify_chart_intent",
+        "generate_sql", "execute_sql", "prepare_chart_data", "decide_chart",
+        "plan_chart", "render_chart",
+    ]

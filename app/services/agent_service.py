@@ -3,6 +3,7 @@ from typing import Mapping, Protocol, cast
 
 from app.agent.sql_executor import SQLQueryResult
 from app.agent.state import AgentState, Route
+from app.analysis.chart_renderer import ChartArtifact, ChartSpec
 from app.analysis.financial_analyzer import AnalysisOperation, AnalysisResult
 from app.rag.models import RetrievedChunk
 
@@ -28,6 +29,8 @@ class AgentResult:
     generated_sql: str | None = None
     sql_result: SQLQueryResult | None = None
     analysis_result: AnalysisResult | None = None
+    chart_spec: ChartSpec | None = None
+    chart_artifact: ChartArtifact | None = None
 
 
 class AgentService:
@@ -127,11 +130,21 @@ class AgentService:
             ):
                 raise InvalidAgentResultError("SQL graph result has inconsistent mode.")
 
+            chart_spec = result.get("chart_spec")
+            chart_artifact = result.get("chart_artifact")
+            if (chart_spec is not None or chart_artifact is not None) and (
+                not isinstance(chart_spec, ChartSpec)
+                or not isinstance(chart_artifact, ChartArtifact)
+            ):
+                raise InvalidAgentResultError("SQL graph result has inconsistent chart fields.")
+
             return AgentResult(
                 route="sql",
                 generated_sql=generated_sql,
                 sql_result=sql_result,
                 analysis_result=cast(AnalysisResult | None, analysis_result),
+                chart_spec=cast(ChartSpec | None, chart_spec),
+                chart_artifact=cast(ChartArtifact | None, chart_artifact),
             )
 
         raise InvalidAgentResultError(

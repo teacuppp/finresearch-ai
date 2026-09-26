@@ -7,9 +7,19 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.agent.schema import FINANCIAL_SCHEMA
 from app.agent.sql_executor import SQLExecutionError, SQLExecutor
-from app.agent.sql_generator import SQLGenerator
+from app.agent.sql_generator import SQLGenerator, SQLResultMode
 from app.agent.state import AgentState, Route, SQLTaskMode
-from app.analysis.financial_analyzer import FinancialAnalyzer
+from app.analysis.chart_data import ChartDataBuilder
+from app.analysis.chart_decision import (
+    ChartDecision,
+    ChartDecisionPolicy,
+    ChartIntentClassifier,
+    ChartIntentResponse,
+    has_explicit_visualization_request,
+)
+from app.analysis.chart_planner import ChartPlanner
+from app.analysis.chart_renderer import ChartRenderer
+from app.analysis.financial_analyzer import AnalysisOperation, FinancialAnalyzer
 from app.analysis.intent import (
     AnalysisSQLTask,
     DirectSQLTask,
@@ -54,6 +64,11 @@ def build_agent_graph(
     sql_analysis_classifier: SQLAnalysisClassifier,
     analysis_planner: AnalysisPlanner,
     financial_analyzer: FinancialAnalyzer,
+    chart_data_builder: ChartDataBuilder,
+    chart_intent_classifier: ChartIntentClassifier,
+    chart_decision_policy: ChartDecisionPolicy,
+    chart_planner: ChartPlanner,
+    chart_renderer: ChartRenderer,
 ) -> CompiledStateGraph:
     if max_sql_retries < 0:
         raise ValueError("max_sql_retries must be non-negative")
@@ -83,6 +98,7 @@ def build_agent_graph(
         generated_sql = sql_generator.generate(
             question=state["question"],
             schema=FINANCIAL_SCHEMA,
+            result_mode=state["sql_result_mode"],
         )
 
         return {
@@ -104,6 +120,20 @@ def build_agent_graph(
 
     def select_sql_mode(state: AgentState) -> SQLTaskMode:
         return state["sql_task_mode"]
+
+    def classify_chart_intent(state: AgentState) -> dict[str, object]:
+        intent = chart_intent_classifier.classify(state["question"])
+        explicit = has_explicit_visualization_request(state["question"])
+        result_mode: SQLResultMode = (
+            "chart_ready"
+            if intent.intent in ("trend", "comparison", "ranking") or explicit
+            else "answer"
+        )
+        return {
+            "chart_intent": intent,
+            "explicit_visualization": explicit,
+            "sql_result_mode": result_mode,
+        }
 
     def generate_analysis_data(state: AgentState) -> dict[str, object]:
         generated_sql = sql_generator.generate_analysis_data(
@@ -157,6 +187,7 @@ def build_agent_graph(
             schema=FINANCIAL_SCHEMA,
             previous_sql=state["generated_sql"],
             error_message=error_message,
+            result_mode=state["sql_result_mode"],
         )
         return {
             "generated_sql": repaired_sql,
@@ -234,6 +265,53 @@ def build_agent_graph(
             raise AnalysisPlanningError("Unexpected analysis plan type.")
         return {"analysis_result": result}
 
+    def prepare_chart_data(state: AgentState) -> dict[str, object]:
+        analysis_result = state.get("analysis_result")
+        chart_data = chart_data_builder.build(
+            state["sql_result"], analysis_result=analysis_result,
+        )
+        update: dict[str, object] = {"chart_data": chart_data}
+        if (
+            analysis_result is not None
+            and analysis_result.operation is AnalysisOperation.RANKING
+        ):
+            update["chart_intent"] = ChartIntentResponse(intent="ranking")
+            update["explicit_visualization"] = has_explicit_visualization_request(
+                state["question"]
+            )
+        return update
+
+    def select_chart_data(state: AgentState) -> Literal["none", "ready"]:
+        return "none" if state["chart_data"] is None else "ready"
+
+    def decide_chart(state: AgentState) -> dict[str, ChartDecision]:
+        chart_data = state["chart_data"]
+        if chart_data is None:
+            raise RuntimeError("Chart decision requires chart data.")
+        return {"chart_decision": chart_decision_policy.decide(
+            state["chart_intent"], chart_data,
+            explicit_visualization=state["explicit_visualization"],
+        )}
+
+    def select_chart_decision(state: AgentState) -> ChartDecision:
+        return state["chart_decision"]
+
+    def plan_chart(state: AgentState) -> dict[str, object]:
+        chart_data = state["chart_data"]
+        if chart_data is None:
+            raise RuntimeError("Chart planning requires chart data.")
+        return {"chart_spec": chart_planner.plan(
+            question=state["question"], sql_result=chart_data,
+        )}
+
+    def render_chart(state: AgentState) -> dict[str, object]:
+        chart_data = state["chart_data"]
+        if chart_data is None:
+            raise RuntimeError("Chart rendering requires chart data.")
+        return {"chart_artifact": chart_renderer.render(
+            chart_data, state["chart_spec"],
+        )}
+
     graph = StateGraph(AgentState)
 
     graph.add_node("route_question", route_question)
@@ -247,6 +325,11 @@ def build_agent_graph(
     graph.add_node("repair_analysis_sql", repair_analysis_sql)
     graph.add_node("plan_analysis", plan_analysis)
     graph.add_node("execute_analysis", execute_analysis)
+    graph.add_node("classify_chart_intent", classify_chart_intent)
+    graph.add_node("prepare_chart_data", prepare_chart_data)
+    graph.add_node("decide_chart", decide_chart)
+    graph.add_node("plan_chart", plan_chart)
+    graph.add_node("render_chart", render_chart)
 
     graph.add_edge(START, "route_question")
     graph.add_conditional_edges(
@@ -261,15 +344,16 @@ def build_agent_graph(
     graph.add_conditional_edges(
         "classify_sql_task",
         select_sql_mode,
-        {"direct": "generate_sql", "analysis": "generate_analysis_data"},
+        {"direct": "classify_chart_intent", "analysis": "generate_analysis_data"},
     )
+    graph.add_edge("classify_chart_intent", "generate_sql")
     graph.add_edge("generate_sql", "execute_sql")
     graph.add_edge("generate_analysis_data", "execute_sql")
     graph.add_conditional_edges(
         "execute_sql",
         select_sql_outcome,
         {
-            "direct_success": END,
+            "direct_success": "prepare_chart_data",
             "analysis_success": "plan_analysis",
             "repair": "repair_sql",
             "analysis_repair": "repair_analysis_sql",
@@ -280,8 +364,19 @@ def build_agent_graph(
     graph.add_edge("repair_analysis_sql", "execute_sql")
     graph.add_edge("sql_failure", END)
     graph.add_edge("plan_analysis", "execute_analysis")
-    graph.add_edge("execute_analysis", END)
+    graph.add_edge("execute_analysis", "prepare_chart_data")
+    graph.add_conditional_edges(
+        "prepare_chart_data", select_chart_data,
+        {"none": END, "ready": "decide_chart"},
+    )
+    graph.add_conditional_edges(
+        "decide_chart", select_chart_decision,
+        {"none": END, "chart": "plan_chart"},
+    )
+    graph.add_edge("plan_chart", "render_chart")
+    graph.add_edge("render_chart", END)
 
+    # The longest success path has ten nodes, plus two per SQL repair.
     return graph.compile().with_config({
-        "recursion_limit": max(25, 2 * max_sql_retries + 9),
+        "recursion_limit": max(25, 2 * max_sql_retries + 12),
     })

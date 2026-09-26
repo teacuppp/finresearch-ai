@@ -9,6 +9,12 @@ from app.agent.schema import FINANCIAL_SCHEMA
 from app.agent.router import QuestionRoutingError
 from app.agent.sql_executor import SQLExecutionError, SQLQueryResult, SQLValidationError
 from app.agent.sql_generator import SQLGenerationError
+from app.analysis.chart_data import ChartDataError
+from app.analysis.chart_decision import ChartDecisionError
+from app.analysis.chart_planner import ChartPlanningError
+from app.analysis.chart_renderer import (
+    ChartArtifact, ChartRenderingError, ChartSpec, ChartType,
+)
 from app.analysis.financial_analyzer import (
     AnalysisError, AnalysisOperation, AnalysisResult, FinancialAnalyzer,
 )
@@ -222,6 +228,14 @@ def test_invalid_requests_are_rejected_without_calling_service(
      "The agent could not complete the request."),
     (AnalysisError("private financial data"), 502,
      "The agent could not complete the request."),
+    (ChartDataError("private detail"), 502,
+     "The agent could not complete the request."),
+    (ChartDecisionError("private detail"), 502,
+     "The agent could not complete the request."),
+    (ChartPlanningError("private detail"), 502,
+     "The agent could not complete the request."),
+    (ChartRenderingError("private detail"), 502,
+     "The agent could not complete the request."),
 ])
 def test_expected_application_errors_have_stable_http_mapping(
     client_with_service, error, status, detail
@@ -233,6 +247,7 @@ def test_expected_application_errors_have_stable_http_mapping(
 
     assert response.status_code == status
     assert response.json() == {"detail": detail}
+    assert "private" not in response.text
     assert len(service.calls) == 1
 
 
@@ -258,6 +273,56 @@ def test_response_schema_is_discriminated_by_route():
 
     assert response_schema["discriminator"]["propertyName"] == "route"
     assert len(response_schema["oneOf"]) == 2
+    assert {variant["$ref"].rsplit("/", 1)[-1] for variant in response_schema["oneOf"]} == {
+        "RAGAgentResponse", "SQLAgentResponse",
+    }
+    sql_properties = app.openapi()["components"]["schemas"]["SQLAgentResponse"]["properties"]
+    assert set(sql_properties) == {
+        "route", "generated_sql", "sql_result", "analysis_result",
+    }
+    assert "chart_spec" not in sql_properties
+    assert "chart_artifact" not in sql_properties
+
+
+@pytest.mark.parametrize("analysis", [None, AnalysisResult(
+    AnalysisOperation.RANKING,
+    ranked_rows=(MappingProxyType({"company": "Apple", "revenue_musd": 416161}),),
+)])
+def test_internal_chart_objects_are_absent_from_successful_sql_http_output(
+    client_with_service, analysis,
+):
+    spec = ChartSpec(
+        chart_type=ChartType.BAR, x_column="company", y_column="revenue_musd",
+        title="Revenue",
+    )
+    artifact = ChartArtifact(media_type="image/png", content=b"private png bytes")
+    raw = SQLQueryResult(
+        columns=["company", "revenue_musd"],
+        rows=[{"company": "Apple", "revenue_musd": 416161}], row_count=1,
+    )
+    service = FakeAgentService(AgentResult(
+        route="sql", generated_sql="SELECT company, revenue_musd FROM financial_metrics",
+        sql_result=raw, analysis_result=analysis,
+        chart_spec=spec, chart_artifact=artifact,
+    ))
+
+    response = client_with_service(service).post(
+        "/agent/ask", json={"question": "Plot revenue"},
+    )
+
+    expected = {
+        "route": "sql",
+        "generated_sql": "SELECT company, revenue_musd FROM financial_metrics",
+        "sql_result": {"columns": raw.columns, "rows": raw.rows, "row_count": 1},
+    }
+    if analysis is not None:
+        expected["analysis_result"] = {
+            "operation": "ranking", "value": None,
+            "ranked_rows": [{"company": "Apple", "revenue_musd": 416161}],
+        }
+    assert response.status_code == 200
+    assert response.json() == expected
+    assert "private png bytes" not in response.text
 
 
 @pytest.mark.parametrize("analysis, expected", [
@@ -355,6 +420,9 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
             mode="analysis", operation=operation,
         ))),
         analysis_planner=planner, financial_analyzer=FinancialAnalyzer(),
+        chart_data_builder=Mock(build=Mock(return_value=None)),
+        chart_intent_classifier=Mock(), chart_decision_policy=Mock(),
+        chart_planner=Mock(), chart_renderer=Mock(),
     )
     question = "By what percentage did revenue change?"
 
