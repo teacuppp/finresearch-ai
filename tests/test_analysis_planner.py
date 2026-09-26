@@ -173,6 +173,7 @@ def test_model_call_uses_structured_response_and_zero_temperature():
     call = client.completions.calls[0]
     assert call["model"] == "qwen3:4b"
     assert call["temperature"] == 0
+    assert call["reasoning_effort"] == "none"
     assert call["response_format"] is AnalysisPlanResponse
     assert call["messages"][0] == {
         "role": "system",
