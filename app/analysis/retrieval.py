@@ -1,7 +1,7 @@
-from typing import Literal
+from typing import Annotated, Literal
 
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.analysis.financial_analyzer import AnalysisOperation
 
@@ -13,6 +13,7 @@ MetricColumn = Literal[
     "gross_margin",
 ]
 EntityColumn = Literal["company", "ticker"]
+FiscalYear = Annotated[int, Field(strict=True, ge=1900, le=2100)]
 
 
 ANALYSIS_RETRIEVAL_SYSTEM_PROMPT = """
@@ -42,7 +43,7 @@ class AnalysisRetrievalPlan(BaseModel):
 
     entity_column: EntityColumn
     entities: tuple[str, ...]
-    fiscal_years: tuple[int, ...]
+    fiscal_years: tuple[FiscalYear, ...]
     metric: MetricColumn
 
 
