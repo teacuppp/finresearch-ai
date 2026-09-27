@@ -115,6 +115,44 @@ def test_schema_is_frozen_and_rejects_extra_fields():
         make_plan().metric = "gross_margin"
 
 
+def test_fiscal_year_schema_accepts_range_boundaries():
+    plan = make_plan(fiscal_years=(1900, 2100))
+    assert plan.fiscal_years == (1900, 2100)
+
+
+@pytest.mark.parametrize("year", [1899, 2101, 2])
+def test_fiscal_year_schema_rejects_out_of_range_values(year):
+    data = make_plan().model_dump()
+    data["fiscal_years"] = (2024, year)
+    with pytest.raises(ValidationError):
+        AnalysisRetrievalPlan.model_validate(data)
+
+
+@pytest.mark.parametrize("year", [True, False, "2025"])
+def test_fiscal_year_schema_rejects_non_integer_values(year):
+    data = make_plan().model_dump()
+    data["fiscal_years"] = (2024, year)
+    with pytest.raises(ValidationError):
+        AnalysisRetrievalPlan.model_validate(data)
+
+
+def test_out_of_range_year_in_model_output_is_translated_with_cause():
+    malformed = AnalysisRetrievalPlan.model_construct(
+        entity_column="company",
+        entities=("Microsoft",),
+        fiscal_years=(2024, 2),
+        metric="revenue_musd",
+    )
+    client = FakeClient(malformed)
+    question = "By what percentage did Microsoft's revenue change from 2024 to 2025?"
+
+    with pytest.raises(AnalysisRetrievalPlanningError, match="invalid retrieval plan") as exc:
+        AnalysisRetrievalPlanner(client=client).plan(
+            question, AnalysisOperation.PERCENTAGE_CHANGE
+        )
+    assert isinstance(exc.value.__cause__, ValidationError)
+
+
 @pytest.mark.parametrize("question,operation", [
     ("", AnalysisOperation.RANKING), ("  \n", AnalysisOperation.RANKING),
     ("question", "ranking"), ("question", object()),
