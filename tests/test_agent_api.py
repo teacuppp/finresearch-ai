@@ -120,7 +120,7 @@ def test_rag_response_serialization_and_exact_scoping(client_with_service):
             {"company": {"$eq": "Apple"}},
             {"ticker": {"$eq": "AAPL"}},
             {"fiscal_year": {"$eq": 2025}},
-            {"document_type": {"$eq": "10-K"}},
+            {"document_type": {"$in": ["10-K", "10K"]}},
         ]},
         "company": "Apple",
         "ticker": "AAPL",

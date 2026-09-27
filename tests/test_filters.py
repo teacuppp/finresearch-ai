@@ -41,6 +41,15 @@ def test_build_metadata_filter_multiple_conditions():
     }
 
 
+def test_api_filter_import_uses_legacy_compatible_document_type_condition():
+    assert build_metadata_filter(company="Apple", document_type="10K") == {
+        "$and": [
+            {"company": {"$eq": "Apple"}},
+            {"document_type": {"$in": ["10-K", "10K"]}},
+        ]
+    }
+
+
 #.     pytest tests/test_filters.py -v
 
 # test_filters.py

@@ -117,7 +117,7 @@ def test_top_k_boundaries_are_accepted(top_k: int) -> None:
                 {"company": {"$eq": "Apple"}},
                 {"ticker": {"$eq": "AAPL"}},
                 {"fiscal_year": {"$eq": 2025}},
-                {"document_type": {"$eq": "10-K"}},
+                {"document_type": {"$in": ["10-K", "10K"]}},
             ]},
         ),
     ],

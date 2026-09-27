@@ -4,8 +4,9 @@ from typing import Protocol
 
 from pydantic import ValidationError
 
+from app.rag.metadata import build_metadata_filter
 from app.report.evidence import ReportEvidence, ReportResearchResult
-from app.report.models import ReportPlan, ReportRAGScope
+from app.report.models import ReportPlan
 from app.services.agent_service import AgentResult
 
 
@@ -22,17 +23,6 @@ class ReportAgent(Protocol):
         company: str | None = None,
         ticker: str | None = None,
     ) -> AgentResult: ...
-
-
-def _scope_filter(scope: ReportRAGScope) -> dict:
-    conditions = [
-        {field: {"$eq": value}}
-        for field in ("company", "ticker", "fiscal_year", "document_type")
-        if (value := getattr(scope, field)) is not None
-    ]
-    if len(conditions) == 1:
-        return conditions[0]
-    return {"$and": conditions}
 
 
 class ReportResearchExecutor:
@@ -59,7 +49,12 @@ class ReportResearchExecutor:
                     result = self.agent_service.ask(
                         question=task.question,
                         top_k=self.top_k,
-                        where=_scope_filter(scope),
+                        where=build_metadata_filter(
+                            company=scope.company,
+                            ticker=scope.ticker,
+                            fiscal_year=scope.fiscal_year,
+                            document_type=scope.document_type,
+                        ),
                         company=scope.company,
                         ticker=scope.ticker,
                     )
