@@ -223,19 +223,20 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
     if not DATABASE_PATH.is_file():
         raise FileNotFoundError(f"Local financial database is missing: {DATABASE_PATH}")
 
-    router = LLMQuestionRouter()
-    sql_analysis_classifier = SQLAnalysisClassifier()
-    analysis_retrieval_planner = AnalysisRetrievalPlanner()
+    router = LLMQuestionRouter(model="qwen3:4b-instruct")
+    sql_analysis_classifier = SQLAnalysisClassifier(model="qwen3:4b-instruct")
+    analysis_retrieval_planner = AnalysisRetrievalPlanner(model="qwen3:4b")
     analysis_sql_builder = AnalysisSQLBuilder()
     sql_generator = SQLGenerator(model="qwen3:4b-instruct")
     sql_repair_generator = SQLGenerator(model="qwen3:4b")
     sql_executor = SQLExecutor(database_path=DATABASE_PATH)
-    analysis_planner = AnalysisPlanner()
+    analysis_planner = AnalysisPlanner(model="qwen3:4b")
     financial_analyzer = FinancialAnalyzer()
     chart_data_builder = ChartDataBuilder()
-    chart_intent_classifier = ChartIntentClassifier()
+    chart_intent_classifier = ChartIntentClassifier(model="qwen3:4b-instruct")
     chart_decision_policy = ChartDecisionPolicy()
-    chart_planner = ChartPlanner()
+    direct_chart_planner = ChartPlanner(model="qwen3:4b-instruct")
+    analysis_chart_planner = ChartPlanner(model="qwen3:4b")
     chart_renderer = ChartRenderer()
 
     for component, method, stage in (
@@ -248,7 +249,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
         (sql_repair_generator, "repair", "sql.repair"),
         (sql_repair_generator, "repair_analysis_data", "sql.repair_analysis_data"),
         (analysis_planner, "plan", "analysis.plan"),
-        (chart_planner, "plan", "chart.plan"),
+        (direct_chart_planner, "plan", "chart.plan"),
+        (analysis_chart_planner, "plan", "chart.plan"),
         (sql_executor, "execute", "sql.execute"),
         (financial_analyzer, "percentage_change", "financial.percentage_change"),
         (financial_analyzer, "absolute_change", "financial.absolute_change"),
@@ -274,7 +276,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
         chart_data_builder=chart_data_builder,
         chart_intent_classifier=chart_intent_classifier,
         chart_decision_policy=chart_decision_policy,
-        chart_planner=chart_planner,
+        direct_chart_planner=direct_chart_planner,
+        analysis_chart_planner=analysis_chart_planner,
         chart_renderer=chart_renderer,
     )
     return AgentService(graph=graph)

@@ -26,6 +26,8 @@ def test_composition_exposes_agent_and_reuses_query_service(
     sql_builder = object()
     planner = object()
     analyzer = object()
+    direct_chart_planner = object()
+    analysis_chart_planner = object()
     classifier_factory = Mock(return_value=classifier)
     retrieval_planner_factory = Mock(return_value=retrieval_planner)
     sql_builder_factory = Mock(return_value=sql_builder)
@@ -40,11 +42,15 @@ def test_composition_exposes_agent_and_reuses_query_service(
         name: Mock(return_value=object())
         for name in (
             "ChartDataBuilder", "ChartIntentClassifier", "ChartDecisionPolicy",
-            "ChartPlanner", "ChartRenderer",
+            "ChartRenderer",
         )
     }
     for name, factory in chart_factories.items():
         monkeypatch.setattr(rag_service, name, factory)
+    chart_planner_factory = Mock(
+        side_effect=[direct_chart_planner, analysis_chart_planner]
+    )
+    monkeypatch.setattr(rag_service, "ChartPlanner", chart_planner_factory)
 
     embedding_factory = Mock(
         return_value=embedding_model
@@ -154,17 +160,26 @@ def test_composition_exposes_agent_and_reuses_query_service(
     services.agent_service.ask("First question")
     services.agent_service.ask("Second question")
     assert graph.invoke.call_count == 2
-    classifier_factory.assert_called_once_with()
+    generator_factory.assert_called_once_with(model="qwen3:4b")
+    router_factory.assert_called_once_with(model="qwen3:4b-instruct")
+    classifier_factory.assert_called_once_with(model="qwen3:4b-instruct")
     assert sql_generator_factory.call_args_list == [
         call(model="qwen3:4b-instruct"), call(model="qwen3:4b"),
     ]
     assert sql_generator is not sql_repair_generator
-    retrieval_planner_factory.assert_called_once_with()
+    retrieval_planner_factory.assert_called_once_with(model="qwen3:4b")
     sql_builder_factory.assert_called_once_with()
-    planner_factory.assert_called_once_with()
+    planner_factory.assert_called_once_with(model="qwen3:4b")
     analyzer_factory.assert_called_once_with()
-    for factory in chart_factories.values():
-        factory.assert_called_once_with()
+    chart_factories["ChartIntentClassifier"].assert_called_once_with(
+        model="qwen3:4b-instruct"
+    )
+    for name in ("ChartDataBuilder", "ChartDecisionPolicy", "ChartRenderer"):
+        chart_factories[name].assert_called_once_with()
+    assert chart_planner_factory.call_args_list == [
+        call(model="qwen3:4b-instruct"), call(model="qwen3:4b"),
+    ]
+    assert direct_chart_planner is not analysis_chart_planner
 
     graph_builder.assert_called_once_with(
         router=question_router,
@@ -180,7 +195,8 @@ def test_composition_exposes_agent_and_reuses_query_service(
         chart_data_builder=chart_factories["ChartDataBuilder"].return_value,
         chart_intent_classifier=chart_factories["ChartIntentClassifier"].return_value,
         chart_decision_policy=chart_factories["ChartDecisionPolicy"].return_value,
-        chart_planner=chart_factories["ChartPlanner"].return_value,
+        direct_chart_planner=direct_chart_planner,
+        analysis_chart_planner=analysis_chart_planner,
         chart_renderer=chart_factories["ChartRenderer"].return_value,
     )
     sql_executor_factory.assert_called_once_with(

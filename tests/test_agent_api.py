@@ -432,7 +432,8 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
         analysis_planner=planner, financial_analyzer=FinancialAnalyzer(),
         chart_data_builder=Mock(build=Mock(return_value=None)),
         chart_intent_classifier=Mock(), chart_decision_policy=Mock(),
-        chart_planner=Mock(), chart_renderer=Mock(),
+        direct_chart_planner=Mock(), analysis_chart_planner=Mock(),
+        chart_renderer=Mock(),
     )
     question = "By what percentage did revenue change?"
 

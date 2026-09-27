@@ -121,13 +121,21 @@ def test_profiled_agent_uses_fast_generator_and_separate_repair_model(
     repair = object()
     generator_factory = Mock(side_effect=[normal, repair])
     monkeypatch.setattr(profile_module, "SQLGenerator", generator_factory)
+    factories = {}
     for name in (
         "LLMQuestionRouter", "SQLAnalysisClassifier", "AnalysisRetrievalPlanner",
         "AnalysisSQLBuilder", "SQLExecutor", "AnalysisPlanner", "FinancialAnalyzer",
         "ChartDataBuilder", "ChartIntentClassifier", "ChartDecisionPolicy",
-        "ChartPlanner", "ChartRenderer",
+        "ChartRenderer",
     ):
-        monkeypatch.setattr(profile_module, name, Mock(return_value=object()))
+        factories[name] = Mock(return_value=object())
+        monkeypatch.setattr(profile_module, name, factories[name])
+    direct_chart_planner = object()
+    analysis_chart_planner = object()
+    chart_planner_factory = Mock(
+        side_effect=[direct_chart_planner, analysis_chart_planner]
+    )
+    monkeypatch.setattr(profile_module, "ChartPlanner", chart_planner_factory)
     graph = Mock()
     graph_builder = Mock(return_value=graph)
     monkeypatch.setattr(profile_module, "build_agent_graph", graph_builder)
@@ -139,12 +147,23 @@ def test_profiled_agent_uses_fast_generator_and_separate_repair_model(
     assert generator_factory.call_args_list == [
         call(model="qwen3:4b-instruct"), call(model="qwen3:4b"),
     ]
+    for name in ("LLMQuestionRouter", "SQLAnalysisClassifier", "ChartIntentClassifier"):
+        factories[name].assert_called_once_with(model="qwen3:4b-instruct")
+    for name in ("AnalysisRetrievalPlanner", "AnalysisPlanner"):
+        factories[name].assert_called_once_with(model="qwen3:4b")
+    assert chart_planner_factory.call_args_list == [
+        call(model="qwen3:4b-instruct"), call(model="qwen3:4b"),
+    ]
     assert graph_builder.call_args.kwargs["sql_generator"] is normal
     assert graph_builder.call_args.kwargs["sql_repair_generator"] is repair
+    assert graph_builder.call_args.kwargs["direct_chart_planner"] is direct_chart_planner
+    assert graph_builder.call_args.kwargs["analysis_chart_planner"] is analysis_chart_planner
     wrappers = collector.wrap_method.call_args_list
     assert call(normal, "generate", "sql.generate") in wrappers
     assert call(repair, "repair", "sql.repair") in wrappers
     assert call(repair, "repair_analysis_data", "sql.repair_analysis_data") in wrappers
+    assert call(direct_chart_planner, "plan", "chart.plan") in wrappers
+    assert call(analysis_chart_planner, "plan", "chart.plan") in wrappers
     assert call(normal, "repair", "sql.repair") not in wrappers
     assert call(repair, "generate", "sql.generate") not in wrappers
     assert call(normal, "generate_analysis_data", "sql.generate_analysis_data") not in wrappers

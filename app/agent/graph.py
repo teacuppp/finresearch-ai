@@ -72,7 +72,8 @@ def build_agent_graph(
     chart_data_builder: ChartDataBuilder,
     chart_intent_classifier: ChartIntentClassifier,
     chart_decision_policy: ChartDecisionPolicy,
-    chart_planner: ChartPlanner,
+    direct_chart_planner: ChartPlanner,
+    analysis_chart_planner: ChartPlanner,
     chart_renderer: ChartRenderer,
 ) -> CompiledStateGraph:
     if max_sql_retries < 0:
@@ -307,7 +308,12 @@ def build_agent_graph(
         chart_data = state["chart_data"]
         if chart_data is None:
             raise RuntimeError("Chart planning requires chart data.")
-        return {"chart_spec": chart_planner.plan(
+        planner = (
+            analysis_chart_planner
+            if state["sql_task_mode"] == "analysis"
+            else direct_chart_planner
+        )
+        return {"chart_spec": planner.plan(
             question=state["question"], sql_result=chart_data,
         )}
 

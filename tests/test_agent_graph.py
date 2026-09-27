@@ -251,9 +251,13 @@ def _chart_dependencies(intent="lookup"):
             return_value=ChartIntentResponse(intent=intent)
         )),
         "chart_decision_policy": Mock(spec=ChartDecisionPolicy, wraps=ChartDecisionPolicy()),
-        "chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
+        "direct_chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
             chart_type=ChartType.BAR, x_column="ticker", y_column="revenue_musd",
-            title="Revenue",
+            title="Direct revenue",
+        ))),
+        "analysis_chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
+            chart_type=ChartType.BAR, x_column="ticker", y_column="revenue_musd",
+            title="Analysis revenue",
         ))),
         "chart_renderer": Mock(spec=ChartRenderer, render=Mock(return_value=ChartArtifact(
             media_type="image/png", content=b"fake png",
@@ -823,7 +827,10 @@ def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
         assert result["chart_data"] is None
         assert "chart_intent" not in result
         assert "chart_artifact" not in result
-        for name in ("chart_decision_policy", "chart_planner", "chart_renderer"):
+        for name in (
+            "chart_decision_policy", "direct_chart_planner",
+            "analysis_chart_planner", "chart_renderer",
+        ):
             assert charts[name].mock_calls == []
 
 
@@ -1100,13 +1107,17 @@ def test_direct_chart_intent_controls_sql_mode_and_post_execution_chart(
     )
     assert result["chart_decision"] == decision
     if decision == "chart":
-        spec = charts["chart_planner"].plan.return_value
-        charts["chart_planner"].plan.assert_called_once_with(question=question, sql_result=raw)
+        spec = charts["direct_chart_planner"].plan.return_value
+        charts["direct_chart_planner"].plan.assert_called_once_with(
+            question=question, sql_result=raw,
+        )
+        charts["analysis_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_called_once_with(raw, spec)
         assert result["chart_spec"] is spec
         assert result["chart_artifact"] is charts["chart_renderer"].render.return_value
     else:
-        charts["chart_planner"].plan.assert_not_called()
+        charts["direct_chart_planner"].plan.assert_not_called()
+        charts["analysis_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_not_called()
         assert "chart_spec" not in result
         assert "chart_artifact" not in result
@@ -1133,7 +1144,8 @@ def test_chart_ready_direct_repair_keeps_mode_and_continues_chart_pipeline():
     assert [call["sql"] for call in executor.calls] == [INITIAL_SQL, FIRST_REPAIR]
     assert result.generated_sql == FIRST_REPAIR
     assert result.sql_result is raw
-    assert result.chart_spec is charts["chart_planner"].plan.return_value
+    assert result.chart_spec is charts["direct_chart_planner"].plan.return_value
+    charts["analysis_chart_planner"].plan.assert_not_called()
     assert result.chart_artifact is charts["chart_renderer"].render.return_value
 
 
@@ -1171,15 +1183,17 @@ def test_ranking_charts_ranked_rows_and_service_preserves_raw_rows(rows):
     assert chart_data.rows == [dict(row) for row in result.analysis_result.ranked_rows]
     if rows == 2:
         assert [row["company"] for row in chart_data.rows] == ["Apple", "Microsoft"]
-        charts["chart_planner"].plan.assert_called_once_with(
+        charts["analysis_chart_planner"].plan.assert_called_once_with(
             question=question, sql_result=chart_data,
         )
-        assert charts["chart_planner"].plan.call_args.kwargs["sql_result"] is chart_data
+        assert charts["analysis_chart_planner"].plan.call_args.kwargs["sql_result"] is chart_data
+        charts["direct_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_called_once_with(chart_data, result.chart_spec)
         assert charts["chart_renderer"].render.call_args.args[0] is chart_data
         assert result.chart_artifact is charts["chart_renderer"].render.return_value
     else:
-        charts["chart_planner"].plan.assert_not_called()
+        charts["analysis_chart_planner"].plan.assert_not_called()
+        charts["direct_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_not_called()
         assert result.chart_spec is result.chart_artifact is None
 
@@ -1230,14 +1244,14 @@ def test_ranking_chart_then_direct_invocations_keep_chart_and_analysis_state_iso
     ("chart_intent_classifier", ChartDecisionError("intent failed")),
     ("chart_data_builder", ChartDataError("data failed")),
     ("chart_decision_policy", ChartDecisionError("decision failed")),
-    ("chart_planner", ChartPlanningError("planning failed")),
+    ("direct_chart_planner", ChartPlanningError("planning failed")),
     ("chart_renderer", ChartRenderingError("rendering failed")),
 ])
 def test_chart_errors_propagate_without_fallback_or_retry(stage, error):
     charts = _chart_dependencies()
     methods = [
         ("chart_intent_classifier", "classify"), ("chart_data_builder", "build"),
-        ("chart_decision_policy", "decide"), ("chart_planner", "plan"),
+        ("chart_decision_policy", "decide"), ("direct_chart_planner", "plan"),
         ("chart_renderer", "render"),
     ]
     stage_index = [name for name, _ in methods].index(stage)
@@ -1251,6 +1265,26 @@ def test_chart_errors_propagate_without_fallback_or_retry(stage, error):
     assert getattr(charts[stage], methods[stage_index][1]).call_count == 1
     for name, _ in methods[stage_index + 1:]:
         assert charts[name].mock_calls == []
+    assert generator.repair_calls == generator.analysis_repair_calls == []
+
+
+def test_analysis_chart_planner_error_propagates_without_direct_chart_fallback():
+    charts = _chart_dependencies()
+    dependencies = _analysis_dependencies(AnalysisOperation.RANKING)
+    error = ChartPlanningError("analysis chart failed")
+    charts["analysis_chart_planner"].plan.side_effect = error
+    graph, _, _, generator, _ = _graph_with_fakes(
+        "sql", execution_outcomes=[_raw_result()],
+        chart_dependencies=charts, **dependencies,
+    )
+
+    with pytest.raises(ChartPlanningError) as exc:
+        graph.invoke({"question": "Rank company revenues."})
+
+    assert exc.value is error
+    charts["analysis_chart_planner"].plan.assert_called_once()
+    charts["direct_chart_planner"].plan.assert_not_called()
+    charts["chart_renderer"].render.assert_not_called()
     assert generator.repair_calls == generator.analysis_repair_calls == []
 
 
@@ -1275,10 +1309,14 @@ def test_high_sql_retry_budget_reaches_complete_chart_path(analysis):
         assert len(generator.analysis_repair_calls) == budget
         assert generator.repair_calls == []
         charts["chart_intent_classifier"].classify.assert_not_called()
+        charts["analysis_chart_planner"].plan.assert_called_once()
+        charts["direct_chart_planner"].plan.assert_not_called()
     else:
         assert len(generator.repair_calls) == budget
         assert all(call["result_mode"] == "chart_ready" for call in generator.repair_calls)
         assert generator.analysis_repair_calls == []
+        charts["direct_chart_planner"].plan.assert_called_once()
+        charts["analysis_chart_planner"].plan.assert_not_called()
 
 
 def test_chart_graph_topology_has_explicit_preparation_decision_plan_and_render_nodes():

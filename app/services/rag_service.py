@@ -82,7 +82,7 @@ def create_application_services() -> (
         vector_store=vector_store,
     )
 
-    question_router = LLMQuestionRouter()
+    question_router = LLMQuestionRouter(model="qwen3:4b-instruct")
 
     sql_generator = SQLGenerator(model="qwen3:4b-instruct")
     sql_repair_generator = SQLGenerator(model="qwen3:4b")
@@ -93,15 +93,16 @@ def create_application_services() -> (
         ),
     )
 
-    sql_analysis_classifier = SQLAnalysisClassifier()
-    analysis_retrieval_planner = AnalysisRetrievalPlanner()
+    sql_analysis_classifier = SQLAnalysisClassifier(model="qwen3:4b-instruct")
+    analysis_retrieval_planner = AnalysisRetrievalPlanner(model="qwen3:4b")
     analysis_sql_builder = AnalysisSQLBuilder()
-    analysis_planner = AnalysisPlanner()
+    analysis_planner = AnalysisPlanner(model="qwen3:4b")
     financial_analyzer = FinancialAnalyzer()
     chart_data_builder = ChartDataBuilder()
-    chart_intent_classifier = ChartIntentClassifier()
+    chart_intent_classifier = ChartIntentClassifier(model="qwen3:4b-instruct")
     chart_decision_policy = ChartDecisionPolicy()
-    chart_planner = ChartPlanner()
+    direct_chart_planner = ChartPlanner(model="qwen3:4b-instruct")
+    analysis_chart_planner = ChartPlanner(model="qwen3:4b")
     chart_renderer = ChartRenderer()
 
     agent_graph = build_agent_graph(
@@ -118,7 +119,8 @@ def create_application_services() -> (
         chart_data_builder=chart_data_builder,
         chart_intent_classifier=chart_intent_classifier,
         chart_decision_policy=chart_decision_policy,
-        chart_planner=chart_planner,
+        direct_chart_planner=direct_chart_planner,
+        analysis_chart_planner=analysis_chart_planner,
         chart_renderer=chart_renderer,
     )
 
