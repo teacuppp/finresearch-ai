@@ -1,9 +1,11 @@
 from collections.abc import Iterator
+from unittest.mock import Mock, call
 
 import pytest
 
 from app.agent.sql_executor import SQLQueryResult
 from app.services.agent_service import AgentResult
+from scripts import profile_agent_latency as profile_module
 from scripts.profile_agent_latency import (
     CASES,
     CaseReport,
@@ -107,6 +109,45 @@ def test_retrieval_planning_and_sql_building_stages_are_recorded():
     assert [item.stage for item in summarize(collector.records)] == [
         "analysis_retrieval.plan", "analysis_sql.build",
     ]
+
+
+def test_profiled_agent_uses_fast_generator_and_separate_repair_model(
+    monkeypatch, tmp_path,
+):
+    database_path = tmp_path / "financial_demo.db"
+    database_path.touch()
+    monkeypatch.setattr(profile_module, "DATABASE_PATH", database_path)
+    normal = object()
+    repair = object()
+    generator_factory = Mock(side_effect=[normal, repair])
+    monkeypatch.setattr(profile_module, "SQLGenerator", generator_factory)
+    for name in (
+        "LLMQuestionRouter", "SQLAnalysisClassifier", "AnalysisRetrievalPlanner",
+        "AnalysisSQLBuilder", "SQLExecutor", "AnalysisPlanner", "FinancialAnalyzer",
+        "ChartDataBuilder", "ChartIntentClassifier", "ChartDecisionPolicy",
+        "ChartPlanner", "ChartRenderer",
+    ):
+        monkeypatch.setattr(profile_module, name, Mock(return_value=object()))
+    graph = Mock()
+    graph_builder = Mock(return_value=graph)
+    monkeypatch.setattr(profile_module, "build_agent_graph", graph_builder)
+    collector = Mock()
+
+    agent = profile_module.create_profiled_agent(collector)
+
+    assert agent.graph is graph
+    assert generator_factory.call_args_list == [
+        call(model="qwen3:4b-instruct"), call(model="qwen3:4b"),
+    ]
+    assert graph_builder.call_args.kwargs["sql_generator"] is normal
+    assert graph_builder.call_args.kwargs["sql_repair_generator"] is repair
+    wrappers = collector.wrap_method.call_args_list
+    assert call(normal, "generate", "sql.generate") in wrappers
+    assert call(repair, "repair", "sql.repair") in wrappers
+    assert call(repair, "repair_analysis_data", "sql.repair_analysis_data") in wrappers
+    assert call(normal, "repair", "sql.repair") not in wrappers
+    assert call(repair, "generate", "sql.generate") not in wrappers
+    assert call(normal, "generate_analysis_data", "sql.generate_analysis_data") not in wrappers
 
 
 def test_failed_and_successful_repeated_calls_are_both_included_in_aggregate():

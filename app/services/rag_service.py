@@ -84,7 +84,8 @@ def create_application_services() -> (
 
     question_router = LLMQuestionRouter()
 
-    sql_generator = SQLGenerator()
+    sql_generator = SQLGenerator(model="qwen3:4b-instruct")
+    sql_repair_generator = SQLGenerator(model="qwen3:4b")
 
     sql_executor = SQLExecutor(
         database_path=(
@@ -107,6 +108,7 @@ def create_application_services() -> (
         router=question_router,
         query_service=query_service,
         sql_generator=sql_generator,
+        sql_repair_generator=sql_repair_generator,
         sql_executor=sql_executor,
         sql_analysis_classifier=sql_analysis_classifier,
         analysis_retrieval_planner=analysis_retrieval_planner,

@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call
 
 from app.services import rag_service
 from app.services.agent_service import AgentService
@@ -17,6 +17,7 @@ def test_composition_exposes_agent_and_reuses_query_service(
     document_service = object()
     question_router = object()
     sql_generator = object()
+    sql_repair_generator = object()
     sql_executor = object()
     graph = Mock()
     graph.invoke.return_value = {"route": "rag", "answer": "Answer", "sources": []}
@@ -69,9 +70,7 @@ def test_composition_exposes_agent_and_reuses_query_service(
     router_factory = Mock(
         return_value=question_router
     )
-    sql_generator_factory = Mock(
-        return_value=sql_generator
-    )
+    sql_generator_factory = Mock(side_effect=[sql_generator, sql_repair_generator])
     sql_executor_factory = Mock(
         return_value=sql_executor
     )
@@ -156,6 +155,10 @@ def test_composition_exposes_agent_and_reuses_query_service(
     services.agent_service.ask("Second question")
     assert graph.invoke.call_count == 2
     classifier_factory.assert_called_once_with()
+    assert sql_generator_factory.call_args_list == [
+        call(model="qwen3:4b-instruct"), call(model="qwen3:4b"),
+    ]
+    assert sql_generator is not sql_repair_generator
     retrieval_planner_factory.assert_called_once_with()
     sql_builder_factory.assert_called_once_with()
     planner_factory.assert_called_once_with()
@@ -167,6 +170,7 @@ def test_composition_exposes_agent_and_reuses_query_service(
         router=question_router,
         query_service=services.query_service,
         sql_generator=sql_generator,
+        sql_repair_generator=sql_repair_generator,
         sql_executor=sql_executor,
         sql_analysis_classifier=classifier,
         analysis_retrieval_planner=retrieval_planner,

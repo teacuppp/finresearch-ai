@@ -227,7 +227,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
     sql_analysis_classifier = SQLAnalysisClassifier()
     analysis_retrieval_planner = AnalysisRetrievalPlanner()
     analysis_sql_builder = AnalysisSQLBuilder()
-    sql_generator = SQLGenerator()
+    sql_generator = SQLGenerator(model="qwen3:4b-instruct")
+    sql_repair_generator = SQLGenerator(model="qwen3:4b")
     sql_executor = SQLExecutor(database_path=DATABASE_PATH)
     analysis_planner = AnalysisPlanner()
     financial_analyzer = FinancialAnalyzer()
@@ -244,9 +245,8 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
         (analysis_sql_builder, "build", "analysis_sql.build"),
         (chart_intent_classifier, "classify", "chart_intent.classify"),
         (sql_generator, "generate", "sql.generate"),
-        (sql_generator, "generate_analysis_data", "sql.generate_analysis_data"),
-        (sql_generator, "repair", "sql.repair"),
-        (sql_generator, "repair_analysis_data", "sql.repair_analysis_data"),
+        (sql_repair_generator, "repair", "sql.repair"),
+        (sql_repair_generator, "repair_analysis_data", "sql.repair_analysis_data"),
         (analysis_planner, "plan", "analysis.plan"),
         (chart_planner, "plan", "chart.plan"),
         (sql_executor, "execute", "sql.execute"),
@@ -264,6 +264,7 @@ def create_profiled_agent(collector: TimingCollector) -> AgentService:
         router=router,
         query_service=FailIfRAG(),  # type: ignore[arg-type]
         sql_generator=sql_generator,
+        sql_repair_generator=sql_repair_generator,
         sql_executor=sql_executor,
         sql_analysis_classifier=sql_analysis_classifier,
         analysis_retrieval_planner=analysis_retrieval_planner,

@@ -141,6 +141,16 @@ class FakeSQLGenerator:
         return next(self.repaired_sqls)
 
 
+class FakeSQLGeneratorDependencies:
+    def __init__(self, repaired_sqls: list[str] | None = None):
+        self.normal = FakeSQLGenerator()
+        self.repair = FakeSQLGenerator(repaired_sqls)
+        self.calls = self.normal.calls
+        self.analysis_calls = self.normal.analysis_calls
+        self.repair_calls = self.repair.repair_calls
+        self.analysis_repair_calls = self.repair.analysis_repair_calls
+
+
 class FakeSQLExecutor:
     def __init__(
         self,
@@ -187,13 +197,14 @@ def _graph_with_fakes(
 ):
     router = FakeRouter(route)
     query_service = FakeQueryService()
-    sql_generator = FakeSQLGenerator(repaired_sqls)
+    sql_generator = FakeSQLGeneratorDependencies(repaired_sqls)
     sql_executor = FakeSQLExecutor(execution_outcomes)
 
     graph = build_agent_graph(
         router=router,
         query_service=query_service,
-        sql_generator=sql_generator,
+        sql_generator=sql_generator.normal,
+        sql_repair_generator=sql_generator.repair,
         sql_executor=sql_executor,
         max_sql_retries=max_sql_retries,
         sql_analysis_classifier=(
@@ -275,6 +286,8 @@ def test_rag_route_delegates_to_query_service():
     ]
     assert sql_generator.calls == []
     assert sql_generator.repair_calls == []
+    assert sql_generator.normal.repair_calls == []
+    assert sql_generator.repair.calls == []
     assert sql_executor.calls == []
     assert result["route"] == "rag"
     assert result["answer"] == f"RAG answer for {question} [Source 1]"
@@ -316,6 +329,9 @@ def test_rag_route_forwards_query_options_unchanged():
     assert query_service.calls[0]["where"] is where
     assert sql_generator.calls == []
     assert sql_generator.repair_calls == []
+    assert sql_generator.normal.repair_calls == []
+    assert sql_generator.repair.calls == []
+    assert sql_generator.repair.analysis_calls == []
     assert sql_executor.calls == []
 
 
@@ -349,6 +365,9 @@ def test_sql_route_delegates_to_generator_and_executor():
         }
     ]
     assert sql_generator.repair_calls == []
+    assert sql_generator.normal.repair_calls == []
+    assert sql_generator.repair.calls == []
+    assert sql_generator.repair.analysis_calls == []
     assert result["route"] == "sql"
     assert result["generated_sql"] == generated_sql
     assert result["sql_retry_count"] == 0
@@ -420,6 +439,8 @@ def test_first_sql_repair_succeeds_with_final_sql_and_result():
         "error_message": "no such column: revenue",
         "result_mode": "answer",
     }]
+    assert generator.normal.repair_calls == []
+    assert generator.repair.calls == []
     assert [call["sql"] for call in executor.calls] == [
         INITIAL_SQL,
         FIRST_REPAIR,
@@ -766,6 +787,7 @@ def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
     )
     assert generator.analysis_calls == []
     assert generator.calls == generator.repair_calls == []
+    assert generator.repair.calls == generator.repair.analysis_calls == []
     assert executor.calls == [{"sql": RAW_SQL, "parameters": ()}]
     dependencies["planner"].plan.assert_called_once_with(
         question=question, sql_result=raw,
@@ -877,6 +899,8 @@ def test_analysis_repair_uses_the_raw_data_repair_method_and_finishes_analysis()
         "operation": AnalysisOperation.PERCENTAGE_CHANGE,
         "previous_sql": RAW_SQL, "error_message": "no such column: revenue",
     }]
+    assert generator.normal.repair_calls == generator.normal.analysis_repair_calls == []
+    assert generator.repair.calls == generator.repair.analysis_calls == []
     assert [call["sql"] for call in executor.calls] == [RAW_SQL, REPAIRED_RAW_SQL]
     dependencies["planner"].plan.assert_called_once_with(
         question="Revenue growth?", sql_result=raw,

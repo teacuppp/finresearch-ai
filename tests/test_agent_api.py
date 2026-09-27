@@ -411,7 +411,8 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
     generator = Mock()
     generator.generate_analysis_data.return_value = "SELECT fiscal_year, revenue"
     final_sql = "SELECT fiscal_year, revenue_musd FROM financial_metrics"
-    generator.repair_analysis_data.return_value = final_sql
+    repair_generator = Mock()
+    repair_generator.repair_analysis_data.return_value = final_sql
     executor = Mock(execute=Mock(side_effect=[
         SQLExecutionError("no such column"), raw,
     ]))
@@ -421,7 +422,8 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
     )))
     graph = build_agent_graph(
         router=Mock(route=Mock(return_value="sql")), query_service=Mock(),
-        sql_generator=generator, sql_executor=executor,
+        sql_generator=generator, sql_repair_generator=repair_generator,
+        sql_executor=executor,
         sql_analysis_classifier=Mock(classify=Mock(return_value=AnalysisSQLTask(
             mode="analysis", operation=operation,
         ))),
@@ -446,10 +448,12 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
                             "ranked_rows": []},
     }
     generator.generate_analysis_data.assert_not_called()
-    generator.repair_analysis_data.assert_called_once_with(
+    repair_generator.repair_analysis_data.assert_called_once_with(
         question=question, schema=FINANCIAL_SCHEMA, operation=operation,
         previous_sql="SELECT fiscal_year, revenue", error_message="no such column",
     )
     generator.generate.assert_not_called()
     generator.repair.assert_not_called()
+    generator.repair_analysis_data.assert_not_called()
+    repair_generator.generate.assert_not_called()
     planner.plan.assert_called_once_with(question=question, sql_result=raw)

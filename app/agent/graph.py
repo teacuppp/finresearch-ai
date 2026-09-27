@@ -60,6 +60,7 @@ def build_agent_graph(
     router: QuestionRouter,
     query_service: QueryService,
     sql_generator: SQLGenerator,
+    sql_repair_generator: SQLGenerator,
     sql_executor: SQLExecutor,
     max_sql_retries: int = 2,
     *,
@@ -188,7 +189,7 @@ def build_agent_graph(
         if error_message is None:
             raise RuntimeError("SQL repair requires an execution error.")
 
-        repaired_sql = sql_generator.repair(
+        repaired_sql = sql_repair_generator.repair(
             question=state["question"],
             schema=FINANCIAL_SCHEMA,
             previous_sql=state["generated_sql"],
@@ -208,7 +209,7 @@ def build_agent_graph(
         error_message = state["sql_error"]
         if error_message is None:
             raise RuntimeError("SQL repair requires an execution error.")
-        repaired_sql = sql_generator.repair_analysis_data(
+        repaired_sql = sql_repair_generator.repair_analysis_data(
             question=state["question"],
             schema=FINANCIAL_SCHEMA,
             operation=state["analysis_operation"],
