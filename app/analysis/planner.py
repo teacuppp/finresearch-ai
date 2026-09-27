@@ -128,6 +128,7 @@ class AnalysisPlanner:
                 ],
                 response_format=AnalysisPlanResponse,
                 temperature=0,
+                reasoning_effort="none",
             )
         except Exception as exc:
             raise AnalysisPlanningError(

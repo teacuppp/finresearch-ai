@@ -34,6 +34,8 @@ from app.analysis.planner import (
     AbsoluteChangePlan, AnalysisPlanner, AnalysisPlanningError,
     DifferencePlan, PercentageChangePlan, RankingPlan,
 )
+from app.analysis.retrieval import AnalysisRetrievalPlan, AnalysisRetrievalPlanner
+from app.analysis.sql_builder import AnalysisSQLBuilder
 
 
 INITIAL_SQL = "SELECT revenue_musd FROM financial_metrics"
@@ -139,6 +141,16 @@ class FakeSQLGenerator:
         return next(self.repaired_sqls)
 
 
+class FakeSQLGeneratorDependencies:
+    def __init__(self, repaired_sqls: list[str] | None = None):
+        self.normal = FakeSQLGenerator()
+        self.repair = FakeSQLGenerator(repaired_sqls)
+        self.calls = self.normal.calls
+        self.analysis_calls = self.normal.analysis_calls
+        self.repair_calls = self.repair.repair_calls
+        self.analysis_repair_calls = self.repair.analysis_repair_calls
+
+
 class FakeSQLExecutor:
     def __init__(
         self,
@@ -179,23 +191,37 @@ def _graph_with_fakes(
     classifier=None,
     planner=None,
     analyzer=None,
+    retrieval_planner=None,
+    sql_builder=None,
     chart_dependencies=None,
 ):
     router = FakeRouter(route)
     query_service = FakeQueryService()
-    sql_generator = FakeSQLGenerator(repaired_sqls)
+    sql_generator = FakeSQLGeneratorDependencies(repaired_sqls)
     sql_executor = FakeSQLExecutor(execution_outcomes)
 
     graph = build_agent_graph(
         router=router,
         query_service=query_service,
-        sql_generator=sql_generator,
+        sql_generator=sql_generator.normal,
+        sql_repair_generator=sql_generator.repair,
         sql_executor=sql_executor,
         max_sql_retries=max_sql_retries,
         sql_analysis_classifier=(
             classifier if classifier is not None
             else Mock(spec=SQLAnalysisClassifier,
                       classify=Mock(return_value=DirectSQLTask(mode="direct")))
+        ),
+        analysis_retrieval_planner=(
+            retrieval_planner if retrieval_planner is not None
+            else Mock(spec=AnalysisRetrievalPlanner, plan=Mock(return_value=AnalysisRetrievalPlan(
+                entity_column="ticker", entities=("AAPL",),
+                fiscal_years=(2024, 2025), metric="revenue_musd",
+            )))
+        ),
+        analysis_sql_builder=(
+            sql_builder if sql_builder is not None
+            else Mock(spec=AnalysisSQLBuilder, build=Mock(return_value=RAW_SQL))
         ),
         analysis_planner=(
             planner if planner is not None
@@ -225,9 +251,13 @@ def _chart_dependencies(intent="lookup"):
             return_value=ChartIntentResponse(intent=intent)
         )),
         "chart_decision_policy": Mock(spec=ChartDecisionPolicy, wraps=ChartDecisionPolicy()),
-        "chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
+        "direct_chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
             chart_type=ChartType.BAR, x_column="ticker", y_column="revenue_musd",
-            title="Revenue",
+            title="Direct revenue",
+        ))),
+        "analysis_chart_planner": Mock(spec=ChartPlanner, plan=Mock(return_value=ChartSpec(
+            chart_type=ChartType.BAR, x_column="ticker", y_column="revenue_musd",
+            title="Analysis revenue",
         ))),
         "chart_renderer": Mock(spec=ChartRenderer, render=Mock(return_value=ChartArtifact(
             media_type="image/png", content=b"fake png",
@@ -260,6 +290,8 @@ def test_rag_route_delegates_to_query_service():
     ]
     assert sql_generator.calls == []
     assert sql_generator.repair_calls == []
+    assert sql_generator.normal.repair_calls == []
+    assert sql_generator.repair.calls == []
     assert sql_executor.calls == []
     assert result["route"] == "rag"
     assert result["answer"] == f"RAG answer for {question} [Source 1]"
@@ -301,6 +333,9 @@ def test_rag_route_forwards_query_options_unchanged():
     assert query_service.calls[0]["where"] is where
     assert sql_generator.calls == []
     assert sql_generator.repair_calls == []
+    assert sql_generator.normal.repair_calls == []
+    assert sql_generator.repair.calls == []
+    assert sql_generator.repair.analysis_calls == []
     assert sql_executor.calls == []
 
 
@@ -334,6 +369,9 @@ def test_sql_route_delegates_to_generator_and_executor():
         }
     ]
     assert sql_generator.repair_calls == []
+    assert sql_generator.normal.repair_calls == []
+    assert sql_generator.repair.calls == []
+    assert sql_generator.repair.analysis_calls == []
     assert result["route"] == "sql"
     assert result["generated_sql"] == generated_sql
     assert result["sql_retry_count"] == 0
@@ -405,6 +443,8 @@ def test_first_sql_repair_succeeds_with_final_sql_and_result():
         "error_message": "no such column: revenue",
         "result_mode": "answer",
     }]
+    assert generator.normal.repair_calls == []
+    assert generator.repair.calls == []
     assert [call["sql"] for call in executor.calls] == [
         INITIAL_SQL,
         FIRST_REPAIR,
@@ -707,12 +747,26 @@ def _analysis_dependencies(operation=AnalysisOperation.PERCENTAGE_CHANGE):
             operation=operation, column="revenue_musd",
             direction=RankingDirection.DESCENDING,
         )
+    if operation in (AnalysisOperation.ABSOLUTE_CHANGE, AnalysisOperation.PERCENTAGE_CHANGE):
+        retrieval_plan = AnalysisRetrievalPlan(
+            entity_column="ticker", entities=("AAPL",),
+            fiscal_years=(2024, 2025), metric="revenue_musd",
+        )
+    else:
+        retrieval_plan = AnalysisRetrievalPlan(
+            entity_column="ticker", entities=("AAPL", "MSFT"),
+            fiscal_years=(2025,), metric="revenue_musd",
+        )
     return {
         "classifier": Mock(spec=SQLAnalysisClassifier, classify=Mock(
             return_value=AnalysisSQLTask(mode="analysis", operation=operation)
         )),
         "planner": Mock(spec=AnalysisPlanner, plan=Mock(return_value=plan)),
         "analyzer": Mock(spec=FinancialAnalyzer, wraps=FinancialAnalyzer()),
+        "retrieval_planner": Mock(spec=AnalysisRetrievalPlanner, plan=Mock(
+            return_value=retrieval_plan
+        )),
+        "sql_builder": Mock(spec=AnalysisSQLBuilder, build=Mock(return_value=RAW_SQL)),
     }
 
 
@@ -729,10 +783,15 @@ def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
     result = graph.invoke({"question": question})
 
     dependencies["classifier"].classify.assert_called_once_with(question)
-    assert generator.analysis_calls == [{
-        "question": question, "schema": FINANCIAL_SCHEMA, "operation": operation,
-    }]
+    dependencies["retrieval_planner"].plan.assert_called_once_with(
+        question=question, operation=operation,
+    )
+    dependencies["sql_builder"].build.assert_called_once_with(
+        dependencies["retrieval_planner"].plan.return_value, operation,
+    )
+    assert generator.analysis_calls == []
     assert generator.calls == generator.repair_calls == []
+    assert generator.repair.calls == generator.repair.analysis_calls == []
     assert executor.calls == [{"sql": RAW_SQL, "parameters": ()}]
     dependencies["planner"].plan.assert_called_once_with(
         question=question, sql_result=raw,
@@ -768,7 +827,10 @@ def test_analysis_success_dispatches_to_the_existing_analyzer(operation):
         assert result["chart_data"] is None
         assert "chart_intent" not in result
         assert "chart_artifact" not in result
-        for name in ("chart_decision_policy", "chart_planner", "chart_renderer"):
+        for name in (
+            "chart_decision_policy", "direct_chart_planner",
+            "analysis_chart_planner", "chart_renderer",
+        ):
             assert charts[name].mock_calls == []
 
 
@@ -787,6 +849,28 @@ def test_analysis_graph_has_explicit_generation_planning_and_execution_nodes():
     ]
 
 
+def test_analysis_graph_passes_deterministically_built_sql_to_executor():
+    dependencies = _analysis_dependencies()
+    dependencies["sql_builder"] = AnalysisSQLBuilder()
+    graph, _, _, generator, executor = _graph_with_fakes(
+        "sql", execution_outcomes=[_raw_result()], **dependencies,
+    )
+
+    result = graph.invoke({"question": "Apple revenue growth"})
+
+    assert executor.calls == [{
+        "sql": (
+            "SELECT company, ticker, fiscal_year, revenue_musd\n"
+            "FROM financial_metrics\n"
+            "WHERE ticker = 'AAPL' AND fiscal_year IN (2024, 2025)\n"
+            "ORDER BY fiscal_year"
+        ),
+        "parameters": (),
+    }]
+    assert result["generated_sql"] == executor.calls[0]["sql"]
+    assert generator.analysis_calls == generator.calls == []
+
+
 @pytest.mark.parametrize("route", ["rag", "sql"])
 def test_rag_and_direct_sql_skip_analysis_components(route):
     dependencies = _analysis_dependencies()
@@ -798,6 +882,8 @@ def test_rag_and_direct_sql_skip_analysis_components(route):
     assert dependencies["classifier"].classify.call_count == (route == "sql")
     assert dependencies["planner"].mock_calls == []
     assert dependencies["analyzer"].mock_calls == []
+    assert dependencies["retrieval_planner"].mock_calls == []
+    assert dependencies["sql_builder"].mock_calls == []
     assert generator.analysis_calls == generator.analysis_repair_calls == []
     assert not any(key.startswith("analysis_") for key in result)
     assert len(generator.calls) == (route == "sql")
@@ -820,6 +906,8 @@ def test_analysis_repair_uses_the_raw_data_repair_method_and_finishes_analysis()
         "operation": AnalysisOperation.PERCENTAGE_CHANGE,
         "previous_sql": RAW_SQL, "error_message": "no such column: revenue",
     }]
+    assert generator.normal.repair_calls == generator.normal.analysis_repair_calls == []
+    assert generator.repair.calls == generator.repair.analysis_calls == []
     assert [call["sql"] for call in executor.calls] == [RAW_SQL, REPAIRED_RAW_SQL]
     dependencies["planner"].plan.assert_called_once_with(
         question="Revenue growth?", sql_result=raw,
@@ -854,7 +942,9 @@ def test_analysis_retry_budget_can_succeed_on_last_allowed_execution(budget):
 
     result = graph.invoke({"question": "Growth?"})
 
-    assert len(generator.analysis_calls) == 1
+    assert generator.analysis_calls == []
+    dependencies["retrieval_planner"].plan.assert_called_once()
+    dependencies["sql_builder"].build.assert_called_once()
     assert len(generator.analysis_repair_calls) == budget
     assert len(executor.calls) == budget + 1
     assert result["sql_retry_count"] == budget
@@ -1017,13 +1107,17 @@ def test_direct_chart_intent_controls_sql_mode_and_post_execution_chart(
     )
     assert result["chart_decision"] == decision
     if decision == "chart":
-        spec = charts["chart_planner"].plan.return_value
-        charts["chart_planner"].plan.assert_called_once_with(question=question, sql_result=raw)
+        spec = charts["direct_chart_planner"].plan.return_value
+        charts["direct_chart_planner"].plan.assert_called_once_with(
+            question=question, sql_result=raw,
+        )
+        charts["analysis_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_called_once_with(raw, spec)
         assert result["chart_spec"] is spec
         assert result["chart_artifact"] is charts["chart_renderer"].render.return_value
     else:
-        charts["chart_planner"].plan.assert_not_called()
+        charts["direct_chart_planner"].plan.assert_not_called()
+        charts["analysis_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_not_called()
         assert "chart_spec" not in result
         assert "chart_artifact" not in result
@@ -1050,7 +1144,8 @@ def test_chart_ready_direct_repair_keeps_mode_and_continues_chart_pipeline():
     assert [call["sql"] for call in executor.calls] == [INITIAL_SQL, FIRST_REPAIR]
     assert result.generated_sql == FIRST_REPAIR
     assert result.sql_result is raw
-    assert result.chart_spec is charts["chart_planner"].plan.return_value
+    assert result.chart_spec is charts["direct_chart_planner"].plan.return_value
+    charts["analysis_chart_planner"].plan.assert_not_called()
     assert result.chart_artifact is charts["chart_renderer"].render.return_value
 
 
@@ -1088,15 +1183,17 @@ def test_ranking_charts_ranked_rows_and_service_preserves_raw_rows(rows):
     assert chart_data.rows == [dict(row) for row in result.analysis_result.ranked_rows]
     if rows == 2:
         assert [row["company"] for row in chart_data.rows] == ["Apple", "Microsoft"]
-        charts["chart_planner"].plan.assert_called_once_with(
+        charts["analysis_chart_planner"].plan.assert_called_once_with(
             question=question, sql_result=chart_data,
         )
-        assert charts["chart_planner"].plan.call_args.kwargs["sql_result"] is chart_data
+        assert charts["analysis_chart_planner"].plan.call_args.kwargs["sql_result"] is chart_data
+        charts["direct_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_called_once_with(chart_data, result.chart_spec)
         assert charts["chart_renderer"].render.call_args.args[0] is chart_data
         assert result.chart_artifact is charts["chart_renderer"].render.return_value
     else:
-        charts["chart_planner"].plan.assert_not_called()
+        charts["analysis_chart_planner"].plan.assert_not_called()
+        charts["direct_chart_planner"].plan.assert_not_called()
         charts["chart_renderer"].render.assert_not_called()
         assert result.chart_spec is result.chart_artifact is None
 
@@ -1147,14 +1244,14 @@ def test_ranking_chart_then_direct_invocations_keep_chart_and_analysis_state_iso
     ("chart_intent_classifier", ChartDecisionError("intent failed")),
     ("chart_data_builder", ChartDataError("data failed")),
     ("chart_decision_policy", ChartDecisionError("decision failed")),
-    ("chart_planner", ChartPlanningError("planning failed")),
+    ("direct_chart_planner", ChartPlanningError("planning failed")),
     ("chart_renderer", ChartRenderingError("rendering failed")),
 ])
 def test_chart_errors_propagate_without_fallback_or_retry(stage, error):
     charts = _chart_dependencies()
     methods = [
         ("chart_intent_classifier", "classify"), ("chart_data_builder", "build"),
-        ("chart_decision_policy", "decide"), ("chart_planner", "plan"),
+        ("chart_decision_policy", "decide"), ("direct_chart_planner", "plan"),
         ("chart_renderer", "render"),
     ]
     stage_index = [name for name, _ in methods].index(stage)
@@ -1168,6 +1265,26 @@ def test_chart_errors_propagate_without_fallback_or_retry(stage, error):
     assert getattr(charts[stage], methods[stage_index][1]).call_count == 1
     for name, _ in methods[stage_index + 1:]:
         assert charts[name].mock_calls == []
+    assert generator.repair_calls == generator.analysis_repair_calls == []
+
+
+def test_analysis_chart_planner_error_propagates_without_direct_chart_fallback():
+    charts = _chart_dependencies()
+    dependencies = _analysis_dependencies(AnalysisOperation.RANKING)
+    error = ChartPlanningError("analysis chart failed")
+    charts["analysis_chart_planner"].plan.side_effect = error
+    graph, _, _, generator, _ = _graph_with_fakes(
+        "sql", execution_outcomes=[_raw_result()],
+        chart_dependencies=charts, **dependencies,
+    )
+
+    with pytest.raises(ChartPlanningError) as exc:
+        graph.invoke({"question": "Rank company revenues."})
+
+    assert exc.value is error
+    charts["analysis_chart_planner"].plan.assert_called_once()
+    charts["direct_chart_planner"].plan.assert_not_called()
+    charts["chart_renderer"].render.assert_not_called()
     assert generator.repair_calls == generator.analysis_repair_calls == []
 
 
@@ -1192,10 +1309,14 @@ def test_high_sql_retry_budget_reaches_complete_chart_path(analysis):
         assert len(generator.analysis_repair_calls) == budget
         assert generator.repair_calls == []
         charts["chart_intent_classifier"].classify.assert_not_called()
+        charts["analysis_chart_planner"].plan.assert_called_once()
+        charts["direct_chart_planner"].plan.assert_not_called()
     else:
         assert len(generator.repair_calls) == budget
         assert all(call["result_mode"] == "chart_ready" for call in generator.repair_calls)
         assert generator.analysis_repair_calls == []
+        charts["direct_chart_planner"].plan.assert_called_once()
+        charts["analysis_chart_planner"].plan.assert_not_called()
 
 
 def test_chart_graph_topology_has_explicit_preparation_decision_plan_and_render_nodes():

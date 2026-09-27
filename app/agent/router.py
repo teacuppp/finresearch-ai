@@ -89,6 +89,7 @@ class LLMQuestionRouter:
                 ],
                 response_format=RouteDecision,
                 temperature=0,
+                reasoning_effort="none",
             )
         except Exception as exc:
             raise QuestionRoutingError(

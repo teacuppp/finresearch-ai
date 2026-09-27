@@ -14,6 +14,8 @@ from app.analysis.chart_renderer import ChartRenderingError
 from app.analysis.financial_analyzer import AnalysisError, AnalysisOperation
 from app.analysis.intent import SQLAnalysisClassificationError
 from app.analysis.planner import AnalysisPlanningError
+from app.analysis.retrieval import AnalysisRetrievalPlanningError
+from app.analysis.sql_builder import AnalysisSQLBuildError
 from app.api.filters import build_metadata_filter
 from app.api.rag import AskRequest as RAGAskRequest, SourceResponse
 from app.dependencies import get_agent_service
@@ -103,6 +105,8 @@ def ask_question(
         InvalidAgentResultError,
         SQLAnalysisClassificationError,
         AnalysisPlanningError,
+        AnalysisRetrievalPlanningError,
+        AnalysisSQLBuildError,
         AnalysisError,
         ChartDataError,
         ChartDecisionError,

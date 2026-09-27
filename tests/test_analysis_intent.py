@@ -113,6 +113,7 @@ def test_model_call_preserves_question_and_uses_structured_zero_temperature_outp
         ],
         "response_format": SQLTaskResponse,
         "temperature": 0,
+        "reasoning_effort": "none",
     }]
 
 

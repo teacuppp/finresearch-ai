@@ -34,6 +34,8 @@ from app.analysis.planner import (
     PercentageChangePlan,
     RankingPlan,
 )
+from app.analysis.retrieval import AnalysisRetrievalPlanner
+from app.analysis.sql_builder import AnalysisSQLBuilder
 from app.services.query_service import QueryService
 
 
@@ -58,16 +60,20 @@ def build_agent_graph(
     router: QuestionRouter,
     query_service: QueryService,
     sql_generator: SQLGenerator,
+    sql_repair_generator: SQLGenerator,
     sql_executor: SQLExecutor,
     max_sql_retries: int = 2,
     *,
     sql_analysis_classifier: SQLAnalysisClassifier,
+    analysis_retrieval_planner: AnalysisRetrievalPlanner,
+    analysis_sql_builder: AnalysisSQLBuilder,
     analysis_planner: AnalysisPlanner,
     financial_analyzer: FinancialAnalyzer,
     chart_data_builder: ChartDataBuilder,
     chart_intent_classifier: ChartIntentClassifier,
     chart_decision_policy: ChartDecisionPolicy,
-    chart_planner: ChartPlanner,
+    direct_chart_planner: ChartPlanner,
+    analysis_chart_planner: ChartPlanner,
     chart_renderer: ChartRenderer,
 ) -> CompiledStateGraph:
     if max_sql_retries < 0:
@@ -136,10 +142,12 @@ def build_agent_graph(
         }
 
     def generate_analysis_data(state: AgentState) -> dict[str, object]:
-        generated_sql = sql_generator.generate_analysis_data(
+        retrieval_plan = analysis_retrieval_planner.plan(
             question=state["question"],
-            schema=FINANCIAL_SCHEMA,
             operation=state["analysis_operation"],
+        )
+        generated_sql = analysis_sql_builder.build(
+            retrieval_plan, state["analysis_operation"]
         )
         return {
             "generated_sql": generated_sql,
@@ -182,7 +190,7 @@ def build_agent_graph(
         if error_message is None:
             raise RuntimeError("SQL repair requires an execution error.")
 
-        repaired_sql = sql_generator.repair(
+        repaired_sql = sql_repair_generator.repair(
             question=state["question"],
             schema=FINANCIAL_SCHEMA,
             previous_sql=state["generated_sql"],
@@ -202,7 +210,7 @@ def build_agent_graph(
         error_message = state["sql_error"]
         if error_message is None:
             raise RuntimeError("SQL repair requires an execution error.")
-        repaired_sql = sql_generator.repair_analysis_data(
+        repaired_sql = sql_repair_generator.repair_analysis_data(
             question=state["question"],
             schema=FINANCIAL_SCHEMA,
             operation=state["analysis_operation"],
@@ -300,7 +308,12 @@ def build_agent_graph(
         chart_data = state["chart_data"]
         if chart_data is None:
             raise RuntimeError("Chart planning requires chart data.")
-        return {"chart_spec": chart_planner.plan(
+        planner = (
+            analysis_chart_planner
+            if state["sql_task_mode"] == "analysis"
+            else direct_chart_planner
+        )
+        return {"chart_spec": planner.plan(
             question=state["question"], sql_result=chart_data,
         )}
 

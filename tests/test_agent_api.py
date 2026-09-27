@@ -19,6 +19,8 @@ from app.analysis.financial_analyzer import (
     AnalysisError, AnalysisOperation, AnalysisResult, FinancialAnalyzer,
 )
 from app.analysis.intent import AnalysisSQLTask, SQLAnalysisClassificationError
+from app.analysis.retrieval import AnalysisRetrievalPlanningError
+from app.analysis.sql_builder import AnalysisSQLBuildError
 from app.analysis.planner import AnalysisPlanningError, PercentageChangePlan
 from app.dependencies import get_agent_service
 from app.main import app
@@ -226,6 +228,10 @@ def test_invalid_requests_are_rejected_without_calling_service(
      "The agent could not complete the request."),
     (AnalysisPlanningError("private model detail"), 502,
      "The agent could not complete the request."),
+    (AnalysisRetrievalPlanningError("private model detail"), 502,
+     "The agent could not complete the request."),
+    (AnalysisSQLBuildError("private SQL detail"), 502,
+     "The agent could not complete the request."),
     (AnalysisError("private financial data"), 502,
      "The agent could not complete the request."),
     (ChartDataError("private detail"), 502,
@@ -405,7 +411,8 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
     generator = Mock()
     generator.generate_analysis_data.return_value = "SELECT fiscal_year, revenue"
     final_sql = "SELECT fiscal_year, revenue_musd FROM financial_metrics"
-    generator.repair_analysis_data.return_value = final_sql
+    repair_generator = Mock()
+    repair_generator.repair_analysis_data.return_value = final_sql
     executor = Mock(execute=Mock(side_effect=[
         SQLExecutionError("no such column"), raw,
     ]))
@@ -415,14 +422,18 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
     )))
     graph = build_agent_graph(
         router=Mock(route=Mock(return_value="sql")), query_service=Mock(),
-        sql_generator=generator, sql_executor=executor,
+        sql_generator=generator, sql_repair_generator=repair_generator,
+        sql_executor=executor,
         sql_analysis_classifier=Mock(classify=Mock(return_value=AnalysisSQLTask(
             mode="analysis", operation=operation,
         ))),
+        analysis_retrieval_planner=Mock(plan=Mock(return_value=object())),
+        analysis_sql_builder=Mock(build=Mock(return_value="SELECT fiscal_year, revenue")),
         analysis_planner=planner, financial_analyzer=FinancialAnalyzer(),
         chart_data_builder=Mock(build=Mock(return_value=None)),
         chart_intent_classifier=Mock(), chart_decision_policy=Mock(),
-        chart_planner=Mock(), chart_renderer=Mock(),
+        direct_chart_planner=Mock(), analysis_chart_planner=Mock(),
+        chart_renderer=Mock(),
     )
     question = "By what percentage did revenue change?"
 
@@ -437,13 +448,13 @@ def test_analysis_repair_graph_service_and_http_work_together(client_with_servic
         "analysis_result": {"operation": "percentage_change", "value": 25.0,
                             "ranked_rows": []},
     }
-    generator.generate_analysis_data.assert_called_once_with(
-        question=question, schema=FINANCIAL_SCHEMA, operation=operation,
-    )
-    generator.repair_analysis_data.assert_called_once_with(
+    generator.generate_analysis_data.assert_not_called()
+    repair_generator.repair_analysis_data.assert_called_once_with(
         question=question, schema=FINANCIAL_SCHEMA, operation=operation,
         previous_sql="SELECT fiscal_year, revenue", error_message="no such column",
     )
     generator.generate.assert_not_called()
     generator.repair.assert_not_called()
+    generator.repair_analysis_data.assert_not_called()
+    repair_generator.generate.assert_not_called()
     planner.plan.assert_called_once_with(question=question, sql_result=raw)
