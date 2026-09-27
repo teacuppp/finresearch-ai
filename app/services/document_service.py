@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.rag.embeddings import EmbeddingModel
 from app.rag.ingestion import process_pdf
+from app.rag.metadata import normalize_document_type
 from app.rag.vector_store import VectorStore
 
 
@@ -22,12 +23,13 @@ class DocumentService:
         fiscal_year: int | None = None,
         document_type: str | None = None,
     ) -> int:
+        canonical_document_type = normalize_document_type(document_type)
         chunks = process_pdf(
             file_path=file_path,
             company=company,
             ticker=ticker,
             fiscal_year=fiscal_year,
-            document_type=document_type,
+            document_type=canonical_document_type,
         )
         texts = [
             chunk.text
