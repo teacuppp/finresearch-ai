@@ -1,11 +1,15 @@
 """JSON report endpoint and its metadata-only attachment boundary."""
 
 import base64
+from io import BytesIO
+from unittest.mock import Mock
+from zipfile import ZipFile
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import app.api.reports as reports_module
 from app.api.reports import router
 from app.dependencies import get_report_bundle_renderer, get_report_generation_service
 from app.main import app as main_app
@@ -23,6 +27,7 @@ from app.report.markdown_renderer import (
 from app.report.planner import ReportPlanningError
 from app.report.synthesis_evidence import ReportSynthesisEvidenceError
 from app.report.synthesizer import ReportSynthesisError
+from app.report.zip_export import ReportZipExportError
 
 
 class FakeGenerationService:
@@ -250,6 +255,133 @@ def test_main_app_registers_report_route_and_keeps_existing_routes() -> None:
     paths = main_app.openapi()["paths"]
 
     assert "post" in paths["/reports/generate"]
+    assert "post" in paths["/reports/export"]
+    export_content = paths["/reports/export"]["post"]["responses"]["200"]["content"]
+    assert export_content == {
+        "application/zip": {"schema": {"type": "string", "format": "binary"}}
+    }
     assert "/rag/ask" in paths
     assert "/agent/ask" in paths
     assert "/health" in paths
+
+
+def test_export_returns_zip_with_exact_headers_and_preserves_call_identity() -> None:
+    original_bytes = b"\x89PNG\r\nEXPORT_BYTES"
+    attachment = _attachment("revenue", original_bytes)
+    markdown = "# Report\n\n## Evidence\n"
+    client, service, renderer, generation = _test_client(
+        markdown=markdown, attachments=(attachment,)
+    )
+    request = "  Analyze Apple revenue.  "
+
+    response = client.post("/reports/export", json={"request": request})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="finresearch-report.zip"'
+    )
+    assert service.calls == [request]
+    assert len(renderer.calls) == 1
+    assert renderer.calls[0] is generation
+    with ZipFile(BytesIO(response.content)) as archive:
+        assert archive.namelist() == [
+            "manifest.json", "report.md", "attachments/chart-revenue.png"
+        ]
+        assert archive.read("report.md") == markdown.encode("utf-8")
+        assert archive.read(attachment.relative_path) == original_bytes
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"request": 42}, {"request": ""}, {"request": "   "}, {"request": "x" * 2001}],
+)
+def test_export_invalid_request_uses_normal_422_validation(body: dict) -> None:
+    client, service, renderer, _ = _test_client()
+
+    response = client.post("/reports/export", json=body)
+
+    assert response.status_code == 422
+    assert service.calls == []
+    assert renderer.calls == []
+
+
+@pytest.mark.parametrize(
+    ("failure", "status"),
+    [
+        (ReportPlanningError("private planning detail"), 502),
+        (ReportResearchExecutionError("private research detail"), 502),
+        (ReportSynthesisError("private synthesis detail"), 502),
+        (ReportSynthesisEvidenceError("private evidence detail"), 500),
+    ],
+)
+def test_export_generation_errors_preserve_existing_mapping(
+    failure: Exception, status: int
+) -> None:
+    client, service, renderer, _ = _test_client(generation_failure=failure)
+
+    response = client.post("/reports/export", json={"request": "Report"})
+
+    assert response.status_code == status
+    assert response.json() == {"detail": "The report could not be generated."}
+    assert "private" not in response.text
+    assert service.calls == ["Report"]
+    assert renderer.calls == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ReportMarkdownRenderingError("private Markdown detail"),
+        ReportChartAttachmentError("private chart detail"),
+    ],
+)
+def test_export_rendering_errors_preserve_existing_mapping(
+    failure: Exception,
+) -> None:
+    client, service, renderer, generation = _test_client(rendering_failure=failure)
+
+    response = client.post("/reports/export", json={"request": "Report"})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "The generated report could not be rendered."
+    }
+    assert "private" not in response.text
+    assert service.calls == ["Report"]
+    assert renderer.calls == [generation]
+    assert renderer.calls[0] is generation
+
+
+def test_exporter_error_maps_to_stable_500_after_one_generation_and_render(
+    monkeypatch,
+) -> None:
+    failure = ReportZipExportError("private ZIP detail")
+    exporter = Mock(side_effect=failure)
+    monkeypatch.setattr(reports_module, "build_report_zip", exporter)
+    client, service, renderer, generation = _test_client()
+
+    response = client.post("/reports/export", json={"request": "Report"})
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "detail": "The generated report could not be exported."
+    }
+    assert "private ZIP detail" not in response.text
+    assert service.calls == ["Report"]
+    assert renderer.calls == [generation]
+    assert renderer.calls[0] is generation
+    exporter.assert_called_once_with(renderer.bundle)
+
+
+def test_export_unexpected_error_propagates(monkeypatch) -> None:
+    failure = RuntimeError("unexpected export error")
+    monkeypatch.setattr(reports_module, "build_report_zip", Mock(side_effect=failure))
+    client, service, renderer, generation = _test_client()
+
+    with pytest.raises(RuntimeError) as caught:
+        client.post("/reports/export", json={"request": "Report"})
+
+    assert caught.value is failure
+    assert service.calls == ["Report"]
+    assert renderer.calls[0] is generation
