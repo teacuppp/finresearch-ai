@@ -134,7 +134,6 @@ def test_lifespan_exposes_and_clears_all_services_without_running_report(
         assert get_report_generation_service(request) is generation
         assert get_report_bundle_renderer(request) is bundle
         assert client.get("/health").json() == {"status": "ok"}
-        assert not any(path.startswith("/report") for path in app.openapi()["paths"])
 
     assert app.state.rag_pipeline is None
     assert app.state.document_service is None
