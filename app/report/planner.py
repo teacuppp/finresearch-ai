@@ -24,6 +24,18 @@ command that bypasses the existing Agent router. A request needing both
 qualitative filing evidence and quantitative financial data may require both
 rag and sql tasks.
 
+Route selection:
+- A request containing only structured historical financial metric lookups,
+  comparisons, aggregations, or analysis must produce SQL tasks only. Do not
+  add RAG tasks merely because the companies also have indexed filings.
+- Add RAG tasks only when the original request explicitly asks for narrative
+  or qualitative filing information, such as risks, strategy, management
+  commentary, business explanations or drivers, qualitative disclosures, or
+  filing-based forecast or projection evidence.
+- Mixed requests still need both routes. "Compare Apple and Microsoft FY2025
+  revenue" needs SQL only; "Compare Apple and Microsoft FY2025 revenue and
+  summarize Apple's supply-chain risks" needs SQL and RAG.
+
 SQL decomposition:
 - NEVER create one task per entity × metric cell. For ordinary direct metric
   lookups and comparisons, combine entities and metrics when they share the
@@ -35,14 +47,21 @@ SQL decomposition:
   or when an operation's execution cardinality requires it; a ranking and a
   comparison of a different metric may be separate tasks.
 - BAD: "Apple 2025 revenue" and "Microsoft 2025 revenue" as separate tasks.
-  GOOD: "Retrieve Apple and Microsoft 2025 revenue values."
-  GOOD: "Retrieve Apple and Microsoft 2025 revenue, net income, and gross margin
+  For a comparison request, GOOD: "Compare Apple and Microsoft 2025 revenue
+  values side by side; report each company's value." This remains ONE direct
+  SQL evidence task.
+  For a multi-metric comparison, GOOD: "Compare Apple and Microsoft 2025
+  revenue, net income, and gross margin side by side; report each company's
   values." This remains ONE direct SQL evidence task.
-- For ordinary historical metric retrieval or comparison, ask for underlying
-  values, not a calculated difference. BAD: "Compare Apple and Microsoft 2025
-  operating income." GOOD: "Retrieve Apple and Microsoft 2025 operating income
-  values." Keep explicit absolute change, percentage change, difference, and
-  ranking requests in their operation-specific wording.
+- For an ordinary historical metric lookup, ask to retrieve underlying values.
+  For an ordinary comparison, preserve explicit comparison semantics in the
+  task question and ask to report each entity's underlying value side by side,
+  without requesting a calculated difference. BAD for a comparison: "Retrieve
+  Apple and Microsoft 2025 operating income values." GOOD: "Compare Apple and
+  Microsoft 2025 operating income side by side; report each company's value."
+  Keep explicit absolute change,
+  percentage change, difference, and ranking requests in their
+  operation-specific wording.
 - Explicit deterministic operation precedence: if the original request asks
   for absolute change, percentage change, difference, or ranking, preserve
   that operation in its evidence task. The ordinary retrieve-underlying-values
@@ -71,7 +90,8 @@ SQL decomposition:
   them into separate SQL tasks. For example, "Rank Apple and Microsoft by 2025
   revenue and compare 2025 operating income" becomes:
   1. "Rank Apple and Microsoft by 2025 revenue from highest to lowest."
-  2. "Retrieve Apple and Microsoft 2025 operating income values."
+  2. "Compare Apple and Microsoft 2025 operating income side by side; report
+     each company's value."
 - A deterministic analysis task already retrieves and retains its required raw
   SQL evidence. Do NOT add a redundant direct SQL raw-value task for the same
   entity, year, and metric already consumed by absolute_change,

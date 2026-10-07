@@ -188,6 +188,17 @@ def test_both_requested_years_are_accepted() -> None:
     assert_accepted("Show Apple revenue from 2024 to 2025.", parsed)
 
 
+def test_structured_comparison_plan_preserves_comparison_question() -> None:
+    parsed = sql_plan(
+        title="2025 revenue comparison",
+        question=(
+            "Compare Apple and Microsoft 2025 revenue values using their "
+            "underlying values."
+        ),
+    )
+    assert_accepted("Compare Apple and Microsoft 2025 revenue.", parsed)
+
+
 @pytest.mark.parametrize(
     "parsed",
     [
@@ -412,7 +423,7 @@ def test_prompt_contract() -> None:
         "every company or ticker named in any generated task must come from the original request",
         "never infer comparison peers",
         "never infer a ticker from a company name",
-        "retrieve apple and microsoft 2025 operating income values",
+        "compare apple and microsoft 2025 operating income side by side; report each company's value",
         "one direct sql evidence task",
         "prefer one combined rag evidence task",
         "source document fiscal year, not the target forecast year",
@@ -435,5 +446,21 @@ def test_prompt_contract() -> None:
         "do not expand revenue + net income into revenue + net income + gross margin",
         "retrieve apple's fy2025 revenue and net income values",
         "retrieve apple's fy2025 revenue, net income, and gross margin values",
+    ):
+        assert phrase in prompt
+
+
+def test_prompt_preserves_comparison_and_structured_only_routing() -> None:
+    prompt = " ".join(REPORT_PLANNER_SYSTEM_PROMPT.lower().split())
+    for phrase in (
+        "for an ordinary comparison, preserve explicit comparison semantics",
+        "ask to report each entity's underlying value side by side, without requesting a calculated difference",
+        "compare apple and microsoft 2025 revenue values side by side; report each company's value",
+        "a request containing only structured historical financial metric lookups, comparisons, aggregations, or analysis must produce sql tasks only",
+        "do not add rag tasks merely because the companies also have indexed filings",
+        "add rag tasks only when the original request explicitly asks for narrative or qualitative filing information",
+        "mixed requests still need both routes",
+        "compare apple and microsoft fy2025 revenue\" needs sql only",
+        "summarize apple's supply-chain risks\" needs sql and rag",
     ):
         assert phrase in prompt
