@@ -20,6 +20,14 @@ from app.rag.pipeline import RAGPipeline
 from app.rag.reranker import Reranker
 from app.rag.retriever import Retriever
 from app.rag.vector_store import VectorStore
+from app.report.bundle import ReportBundleRenderer
+from app.report.chart_attachments import ReportChartAttachmentBuilder
+from app.report.executor import ReportResearchExecutor
+from app.report.generation import ReportGenerationService
+from app.report.markdown_renderer import ReportMarkdownRenderer
+from app.report.planner import ReportPlanner
+from app.report.service import ReportService
+from app.report.synthesizer import ReportSynthesizer
 from app.services.agent_service import AgentService
 from app.services.document_service import (
     DocumentService,
@@ -40,6 +48,8 @@ class ApplicationServices:
     document_service: DocumentService
     query_service: QueryService
     agent_service: AgentService
+    report_generation_service: ReportGenerationService
+    report_bundle_renderer: ReportBundleRenderer
 
 
 def create_application_services() -> (
@@ -128,6 +138,22 @@ def create_application_services() -> (
         graph=agent_graph
     )
 
+    report_planner = ReportPlanner(model="qwen3:4b-instruct")
+    report_executor = ReportResearchExecutor(agent_service=agent_service)
+    report_service = ReportService(planner=report_planner, executor=report_executor)
+    report_synthesizer = ReportSynthesizer(model="qwen3:4b-instruct")
+    report_generation_service = ReportGenerationService(
+        research_service=report_service,
+        synthesizer=report_synthesizer,
+    )
+
+    report_markdown_renderer = ReportMarkdownRenderer()
+    report_attachment_builder = ReportChartAttachmentBuilder()
+    report_bundle_renderer = ReportBundleRenderer(
+        markdown_renderer=report_markdown_renderer,
+        attachment_builder=report_attachment_builder,
+    )
+
     return ApplicationServices(
         rag_pipeline=rag_pipeline,
         document_service=(
@@ -135,4 +161,6 @@ def create_application_services() -> (
         ),
         query_service=query_service,
         agent_service=agent_service,
+        report_generation_service=report_generation_service,
+        report_bundle_renderer=report_bundle_renderer,
     )
