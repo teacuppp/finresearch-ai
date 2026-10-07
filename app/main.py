@@ -18,6 +18,8 @@ async def lifespan(app: FastAPI):
     app.state.document_service = services.document_service
     app.state.query_service = services.query_service
     app.state.agent_service = services.agent_service
+    app.state.report_generation_service = services.report_generation_service
+    app.state.report_bundle_renderer = services.report_bundle_renderer
 
     yield
 
@@ -25,6 +27,8 @@ async def lifespan(app: FastAPI):
     app.state.document_service = None
     app.state.query_service = None
     app.state.agent_service = None
+    app.state.report_generation_service = None
+    app.state.report_bundle_renderer = None
 
 app = FastAPI(
     title="FinResearch AI",
