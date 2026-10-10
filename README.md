@@ -2,91 +2,213 @@
 
 [![CI](https://github.com/teacuppp/finresearch-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/teacuppp/finresearch-ai/actions/workflows/ci.yml)
 
-**Agentic financial research over documents and local structured data.**
+An Agentic RAG platform for financial research combining document retrieval, structured financial data analysis, grounded report generation, chart rendering, and deterministic report export.
 
-FinResearch AI ingests financial reports such as 10-K filings, retrieves document evidence, and generates grounded answers with source citations. Its agent API also routes structured questions to read-only local SQLite queries and supports deterministic financial calculations over retrieved rows.
+FinResearch AI is a **local development demo** built with FastAPI, LangGraph, Ollama/Qwen3, ChromaDB, Sentence Transformers, a CrossEncoder reranker, and read-only SQLite. It shows how document evidence and structured financial results can flow through one agent and into a cited Markdown report. It does not include enterprise data infrastructure or a hosted service.
 
-Retrieval, indexing, grounding, and evaluation remain explicit and independently testable. LangGraph orchestrates the existing services above the deterministic RAG pipeline.
+## What it can do
 
-## Overview
+| Workflow | Implemented behavior |
+| --- | --- |
+| Document RAG | Upload PDFs with company, ticker, fiscal year, and document type metadata; index chunks in Chroma; retrieve dense candidates within metadata scope; rerank with a CrossEncoder; generate Qwen answers with source citations and validation. |
+| Agent analysis | Route each question to **one** primary RAG or SQL path. SQL generation runs against read-only local SQLite with at most two execution repairs by default. Structured analysis supports absolute change, percentage change, difference, and ranking through deterministic Python calculations. SQL results can also drive chart decisions, plans, and PNG rendering. |
+| Reports | Plan independent SQL and/or RAG research tasks, execute each through the shared AgentService, synthesize task-associated claims with evidence citations, render Markdown, attach existing SQL-task PNG charts, and return either JSON metadata or an in-memory ZIP archive. |
 
-The document workflow is:
+The report workflow can combine multiple SQL and RAG tasks. POST /agent/ask itself selects one primary route per request.
 
-1. Upload a financial PDF with structured metadata.
-2. Extract document text with PyMuPDF.
-3. Split extracted text into overlapping chunks.
-4. Generate dense embeddings with Sentence Transformers.
-5. Store chunks, embeddings, and metadata in ChromaDB.
-6. Filter the candidate corpus by company, ticker, fiscal year, or document type.
-7. Retrieve the most relevant financial evidence.
-8. Detect ambiguous multi-company queries before generation.
-9. Generate an answer using a local Qwen3 model through Ollama.
-10. Validate citations and repair malformed LLM responses.
-11. Refuse unsupported questions when retrieved evidence is insufficient.
-12. Evaluate retrieval quality against a manually labeled benchmark.
+## Architecture
 
-`POST /agent/ask` adds a router above this workflow: it selects document RAG or SQL for each question. SQL questions then use either direct SQL or the Python analysis workflow. The existing `POST /rag/ask` endpoint remains available for direct RAG requests.
+~~~mermaid
+flowchart TD
+    API["POST /reports/generate or /reports/export"] --> Generation["ReportGenerationService"]
+    Generation --> Research["ReportService"]
+    Research --> Planner["ReportPlanner"]
+    Planner --> Executor["ReportResearchExecutor"]
+    Executor --> Agent["Shared AgentService / LangGraph"]
+    Agent --> SQL["SQL generation and bounded repair"]
+    SQL --> SQLite["Read-only SQLite SQL result"]
+    SQLite --> Analysis["Optional deterministic financial analysis"]
+    SQLite --> ChartPlan["Optional model-generated ChartSpec"]
+    ChartPlan --> ChartRender["Deterministic PNG chart rendering"]
+    Agent --> Scope["RAG metadata filtering"]
+    Scope --> Dense["Dense Chroma retrieval"]
+    Dense --> Rerank["CrossEncoder reranking"]
+    Rerank --> Sources["Retrieved RAG source chunks"]
+    Rerank --> Answer["Grounded Qwen answer and validation; not synthesis input"]
+    SQLite --> Results["ReportResearchResult"]
+    Analysis --> Results
+    ChartRender --> Results
+    Sources --> Results
+    Results -->|SQL rows, analysis results, RAG chunks| Evidence["ReportSynthesisEvidence"]
+    Evidence --> Synth["ReportSynthesizer"]
+    Synth --> Draft["ReportDraft"]
+    Results -->|ChartSpec and PNG ChartArtifact| Attach["ReportChartAttachmentBuilder"]
+    Draft --> Bundle["ReportBundleRenderer"]
+    Attach --> Bundle
+    Bundle --> Markdown["Markdown"]
+    Bundle --> Charts["PNG attachment manifest"]
+    Markdown --> JSON["JSON: Markdown plus attachment metadata"]
+    Charts --> JSON
+    Markdown --> ZIP["Deterministic ZIP: manifest, Markdown, PNG bytes"]
+    Charts --> ZIP
+~~~
 
-## Key Features
+The report executor calls the same AgentService used by POST /agent/ask; it does not create a separate agent graph. Each report task has an expected route and is checked against the actual agent result. The RAG branch reuses QueryService and RAGPipeline, which generates and validates an intermediate answer. Report synthesis receives the retrieved RAG source chunks, not that answer. For SQL tasks, synthesis evidence contains raw SQL rows and any deterministic analysis result.
 
-* PDF ingestion with **PyMuPDF**
-* Fixed-size character chunking with overlap
-* Sentence Transformer embeddings
-* Persistent **ChromaDB** vector storage
-* Multi-document financial corpus
-* Metadata-aware retrieval using:
+Chart planning uses a local model to produce a ChartSpec; chart rendering then deterministically produces a PNG ChartArtifact. Both stay on the SQL research result, where ReportChartAttachmentBuilder reads them to create the attachment manifest. Chart bytes do not pass through ReportSynthesisEvidence or ReportSynthesizer. ReportBundleRenderer combines the draft's Markdown with that manifest for JSON or deterministic ZIP presentation. Generated prose and chart specifications still depend on model output.
 
-  * company
-  * ticker
-  * fiscal year
-  * document type
-* Entity-aware vector search
-* Ambiguous query detection for multi-company retrieval
-* Local **Qwen3** generation through Ollama
-* Grounded answers restricted to retrieved context
-* Source citations in `[Source N]` format
-* Citation validation and one-step answer repair
-* Safe refusal for unsupported questions
-* Duplicate document replacement during re-indexing
-* Shared application services through FastAPI lifespan
-* Dependency injection for testable API components
-* Manually labeled retrieval benchmark
-* Hit@1, Hit@3, Hit@5, and MRR@20 evaluation
-* Automated pytest test suite
-* GitHub Actions CI
-* FastAPI Swagger documentation
-* Typed LangGraph state and conditional RAG/SQL routing
-* Structured Qwen3:4b route selection
-* Read-only SQL generation and execution against local SQLite
-* Bounded SQL execution repair with explicit graph state
-* Structured SQL task classification into direct or analysis mode
-* Raw-value SQL generation and repair for financial analysis
-* Structured analysis planning and deterministic calculation
-* Route-specific typed responses from `POST /agent/ask`
-* Labeled routing evaluation
+## Quick start
 
-## Project Status
+These commands are for local macOS/Linux development from the repository root. Use Python 3.12 and install Ollama separately; keep its local service running.
 
-| Capability                      | Status      |
-| ------------------------------- | ----------- |
-| Multi-document indexing         | ✅ Completed |
-| Entity-aware metadata filtering | ✅ Completed |
-| Duplicate document replacement  | ✅ Completed |
-| Ambiguous query detection       | ✅ Completed |
-| Grounded generation             | ✅ Completed |
-| Citation validation and repair  | ✅ Completed |
-| Retrieval benchmark             | ✅ Completed |
-| Hit@K and MRR evaluation        | ✅ Completed |
-| GitHub Actions CI               | ✅ Completed |
-| Cross-encoder reranking         | ✅ Completed |
-| Agent v1 RAG/SQL routing        | ✅ Completed |
-| Agent HTTP API                  | ✅ Completed |
-| Bounded SQL self-repair         | ✅ Completed |
-| Python financial analysis      | ✅ Completed |
+~~~bash
+git clone https://github.com/teacuppp/finresearch-ai.git
+cd finresearch-ai
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+ollama pull qwen3:4b
+ollama pull qwen3:4b-instruct
+~~~
 
-Current focus: **mixed evidence workflows, charts, and reports.** Retrieval quality remains measured separately against the labeled benchmark below.
+The tested report demo used an **active Ollama context length of 8192**. Check loaded models with `ollama ps`. If an active context is lower, adjust Ollama settings and reload the model before running the demo. Unloaded models need not appear in `ollama ps`. A context of 8192 does not guarantee every report will fit; larger reports can require more context and memory. Embedding and reranking models may also download on first startup.
 
-## Retrieval Evaluation
+### Prepare local data
+
+The repository does not commit data/financial_demo.db, local Chroma state, or source PDFs. The initializer seeds Apple FY2025 revenue of **416161 million USD** and Microsoft FY2025 revenue of **281724 million USD**.
+
+**The initializer deletes and replaces an existing data/financial_demo.db. Inspect or back up that file before running it.**
+
+~~~bash
+python -m scripts.init_financial_db
+~~~
+
+### Start the API
+
+~~~bash
+uvicorn app.main:app --reload
+~~~
+
+Open the local Swagger UI at http://127.0.0.1:8000/docs. GET /health returns a simple health response. Run the upload example below in another terminal. The development server uses the local service configuration; it is not a public hosted deployment.
+
+RAG and mixed demos require the relevant financial filings to be uploaded and indexed locally. For example, after starting the API, upload your own Apple FY2025 Form 10-K PDF:
+
+~~~bash
+curl -X POST "http://127.0.0.1:8000/documents/upload" \
+  -F "file=@/path/to/apple-2025-10k.pdf;type=application/pdf" \
+  -F "company=Apple" \
+  -F "ticker=AAPL" \
+  -F "fiscal_year=2025" \
+  -F "document_type=10-K"
+~~~
+
+The upload fields are file, company, ticker, fiscal_year, and document_type. This project does not download sample filings automatically.
+
+## Live demo
+
+The opt-in smoke command uses the real FastAPI lifespan and production service composition through TestClient; it does not require a separate uvicorn process. Its default is the comparison scenario with both JSON and ZIP checks:
+
+~~~bash
+python -m scripts.smoke_report_live
+python -m scripts.smoke_report_live --scenario comparison --format both
+python -m scripts.smoke_report_live --scenario rag --format json
+python -m scripts.smoke_report_live --scenario mixed --format both
+~~~
+
+The choices are `--scenario comparison|rag|mixed` and `--format json|zip|both`. Exit status is **0 PASS**, **1 FAIL**, or **2 BLOCKED** by a local precondition. Preflight checks Ollama, both required model tags, known active context, and the canonical SQL demo rows; RAG and mixed scenarios also require a local Chroma corpus. The command validates JSON/ZIP structure, known company-to-revenue associations, manifest paths, and PNG signatures. It reports cited qualitative claims and sources for human review; those checks do not prove full semantic accuracy.
+
+In `both` mode, JSON and ZIP requests generate reports independently inside one TestClient lifespan. The Markdown and ZIP bytes need not match across the two model runs. This smoke command is not part of CI.
+
+## API examples
+
+All examples assume the local development API is running.
+
+| Endpoint | Purpose |
+| --- | --- |
+| GET /health | Local health response |
+| POST /documents/upload | Multipart PDF upload and indexing; fields shown in [Prepare local data](#prepare-local-data) |
+| POST /rag/ask | Direct cited RAG answer |
+| POST /agent/ask | One primary RAG or SQL route with typed result |
+| POST /reports/generate | Markdown plus chart attachment metadata as JSON |
+| POST /reports/export | A complete ZIP report |
+
+### Generate a JSON report
+
+~~~bash
+curl -X POST "http://127.0.0.1:8000/reports/generate" \
+  -H "Content-Type: application/json" \
+  -d '{"request":"Create a concise report comparing Apple and Microsoft FY2025 revenue."}'
+~~~
+
+The response has this **illustrative shape**, not guaranteed wording or task IDs:
+
+~~~json
+{
+  "markdown": {
+    "media_type": "text/markdown",
+    "content": "# Example report\n\n..."
+  },
+  "attachments": [
+    {
+      "attachment_id": "chart-sql_revenue_comparison",
+      "task_id": "sql_revenue_comparison",
+      "media_type": "image/png",
+      "relative_path": "attachments/chart-sql_revenue_comparison.png",
+      "title": "Example chart"
+    }
+  ]
+}
+~~~
+
+JSON attachments contain metadata only; PNG bytes are not embedded. A report without charts returns an empty attachments list.
+
+### Export a ZIP report
+
+~~~bash
+curl -X POST "http://127.0.0.1:8000/reports/export" \
+  -H "Content-Type: application/json" \
+  -d '{"request":"Create a concise report comparing Apple and Microsoft FY2025 revenue."}' \
+  --output finresearch-report.zip
+~~~
+
+The server responds with Content-Type `application/zip` and the fixed filename `finresearch-report.zip`. The archive contains `manifest.json`, `report.md`, and any chart attachments at `attachments/chart-<task_id>.png`. The ZIP builder uses fixed member metadata and in-memory bytes; the `--output` flag writes the response on the **client**. Report content itself varies with local models and evidence.
+
+### Ask the existing RAG or agent APIs
+
+~~~bash
+curl -X POST "http://127.0.0.1:8000/rag/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What supply-chain risk did Apple disclose in its FY2025 filing?","company":"Apple","ticker":"AAPL","fiscal_year":2025,"document_type":"10-K","top_k":5}'
+
+curl -X POST "http://127.0.0.1:8000/agent/ask" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What was Apple revenue in fiscal 2025?"}'
+~~~
+
+Both accept a question, optional top_k (1–20, default 5), and optional company, ticker, fiscal_year, and document_type fields for RAG scope. The agent response is either a cited `rag` result or a `sql` result with generated SQL, rows, and an optional analysis result. SQL questions should include their company and year in the question because the API metadata fields filter the RAG path.
+
+## Engineering highlights
+
+- **Explicit composition:** FastAPI lifespan creates shared services, and typed LangGraph state routes agent work above QueryService and RAGPipeline.
+- **Scoped retrieval:** metadata filters narrow the Chroma candidate corpus before dense retrieval; production retrieval then reranks with a CrossEncoder. BM25 and hybrid RRF are experimental alternatives.
+- **Guardrails:** RAG validates citations and permits one answer repair. Report synthesis instructs the model to answer each task and avoid new arithmetic; validation checks task IDs, citation ownership and coverage, and numbers against cited evidence. Deterministic analysis results must be cited with their SQL source and communicated exactly. These checks reduce unsupported output but cannot guarantee semantic truth or relevance.
+- **Read-only analysis:** SQL generation and execution enforce read-only access. Execution repair has a bounded retry budget; supported financial calculations run in deterministic Python rather than generated code.
+- **Presentation boundaries:** chart attachment paths derive from task IDs; Markdown rendering and ZIP member metadata are deterministic for the same validated inputs. The JSON transport omits binary chart content.
+
+## Evaluation and testing
+
+The test suite uses fakes for external model behavior where practical. GitHub Actions runs `pytest -q` on pushes and pull requests targeting `main`; it does **not** run the live Ollama smoke command. A local snapshot after Phase 6.1 was **1156 passing tests**, not a permanent test-count promise.
+
+~~~bash
+HF_HUB_OFFLINE=1 python -m pytest -q
+python -m scripts.evaluate_retrieval
+python -m scripts.evaluate_routing
+python -m scripts.evaluate_routing --benchmark evaluation/routing_challenge_v1.json
+~~~
+
+Retrieval evaluation requires the local indexed corpus. Routing evaluation requires local Ollama. The measurements below come from small labeled financial datasets; they are not a general accuracy claim.
+
+### Retrieval benchmarks
 
 The retriever is evaluated independently from the language model using a manually labeled benchmark built from Apple and Microsoft 2025 annual reports.
 
@@ -105,7 +227,7 @@ The evaluator retrieves the top 20 chunks for each query and reports:
 * **Hit@5** — whether a relevant result appears in the top 5
 * **MRR@20** — reciprocal rank of the first relevant result within the top 20, averaged across queries
 
-### Current Baseline
+#### Current Baseline
 
 Benchmark size: **4 manually labeled queries**
 
@@ -125,7 +247,7 @@ Per-query results:
 | MSFT Total Revenue 2025    | 13             |     0 |     0 |     0 | 0.0769 |
 | MSFT Operating Income 2025 | 1, 2           |     1 |     1 |     1 | 1.0000 |
 
-### Initial Finding
+#### Initial Finding
 
 The benchmark exposes a recurring weakness in the current fixed-size character chunking strategy.
 
@@ -152,7 +274,7 @@ Total net sales 416,161
 
 This indicates that retrieval quality is currently limited not only by embedding similarity, but also by **chunk structure and evidence completeness**.
 
-The benchmark will be reused unchanged when comparing future chunking, embedding, reranking, and hybrid-retrieval strategies.
+The labeled benchmark makes future chunking, embedding, reranking, and hybrid-retrieval comparisons reproducible; the expanded eight-query results follow.
 
 Run the retrieval benchmark with:
 
@@ -160,7 +282,7 @@ Run the retrieval benchmark with:
 python -m scripts.evaluate_retrieval
 ```
 
-### Retrieval Chunking Experiments
+#### Retrieval Chunking Experiments
 
 | Strategy | Hit@1 | Hit@3 | Hit@5 | MRR@20 |
 |---|---:|---:|---:|---:|
@@ -179,7 +301,7 @@ typically ranked between positions 3 and 5.
 This shifted the primary bottleneck from evidence completeness
 to candidate ranking.
 
-### 8-query retrieval benchmark
+#### 8-query retrieval benchmark
 
 Benchmark size:
 4 → 8 manually labeled queries
@@ -206,7 +328,7 @@ Cross-encoder reranking improved MRR@20 from
 
 Hit@3 improved from 0.6250 to 1.0000.
 
-### Hybrid Retrieval Experiments
+#### Hybrid Retrieval Experiments
 
 An additional BM25 lexical retriever was evaluated alongside
 dense retrieval using Reciprocal Rank Fusion (RRF).
@@ -237,7 +359,7 @@ Hybrid retrieval remains available as an experimental retrieval
 strategy for future benchmark expansion and domain-specific reranker
 experiments.
 
-## Routing Evaluation
+### Routing evaluation
 
 The frozen Router v1 uses Qwen3:4b structured output to choose exactly one of two classes: `rag` or `sql`. Saved results for two curated, labeled sets are:
 
@@ -248,6 +370,8 @@ The frozen Router v1 uses Qwen3:4b structured output to choose exactly one of tw
 
 Router v1 was **60/60 correct across the two curated labeled routing evaluation sets**. This is not a measurement of real-world routing accuracy.
 
+Those saved results used the router's default `qwen3:4b` model. The application currently injects `qwen3:4b-instruct` for routing, so the saved score is not a measurement of that current model configuration.
+
 Run the evaluations with a local Ollama `qwen3:4b` model:
 
 ```bash
@@ -256,533 +380,54 @@ Run the evaluations with a local Ollama `qwen3:4b` model:
   --benchmark evaluation/routing_challenge_v1.json
 ```
 
-## Agent Architecture
+### Historical agent smoke observations
 
-```text
-POST /agent/ask
-  → AgentService → compiled LangGraph → LLMQuestionRouter (Qwen3:4b)
-  → conditional routing
-      rag → QueryService → existing RAGPipeline
-          → dense candidate retrieval → CrossEncoder reranking
-          → grounded Qwen answer → validated source citations
-      sql → SQLAnalysisClassifier
-          ├─ direct → generate_sql (SQLGenerator.generate)
-          └─ analysis → generate_analysis_data (SQLGenerator.generate_analysis_data)
-          ↳ both converge at execute_sql (SQLExecutor)
-              ├─ direct success → END
-              ├─ analysis success → AnalysisPlanner
-              │   → FinancialAnalyzer → AnalysisResult → END
-              └─ SQLExecutionError → check shared retry budget
-                  ├─ direct → repair_sql (SQLGenerator.repair) → execute_sql
-                  ├─ analysis → repair_analysis_sql
-                  │   (SQLGenerator.repair_analysis_data) → execute_sql
-                  └─ exhausted → sql_failure → raise SQLExecutionError
-```
+A controlled local test repaired a generated query that selected the nonexistent `revenue` column. The repaired query selected `revenue_musd` for Apple FY2025 and returned `416161` after one repair attempt. That observation verifies the bounded generate → execute → repair → execute path for this case; it is not a general SQL-repair accuracy benchmark.
 
-The API constructs the same metadata filter used by `/rag/ask`. The RAG branch passes the filter, `top_k`, company, and ticker through `AgentService` and the graph to `QueryService`. Unscoped RAG questions return HTTP 400 when multiple companies are indexed. The deterministic `RAGPipeline` still owns retrieval, reranking, context building, generation, and validation; LangGraph sits above it and does not reimplement those steps. PDF ingestion continues to use PyMuPDF, chunking, Sentence Transformers, and ChromaDB.
+Other selected live agent runs against the local demo data observed:
 
-Within the SQL branch, `SQLAnalysisClassifier` selects `direct` or `analysis`; the top-level router still has only `rag` and `sql`. Analysis-mode SQL retrieves raw structured evidence with year and company/ticker context. The structured LLM `AnalysisPlanner` chooses a supported operation and exact result rows and columns. `FinancialAnalyzer` then calculates deterministically. No arbitrary Python code is generated or executed. Supported operations are exactly `absolute_change`, `percentage_change`, `difference`, and `ranking`. Average, sum, count, min/max aggregation, and generic ratios remain on the direct SQL path.
+| Task | Observed result |
+| --- | --- |
+| Apple FY2025 revenue | Direct SQL: `revenue_musd = 416161` |
+| Apple revenue change, 2024 to 2025 | Percentage change ≈ 6.4255%; absolute change 25126 million USD |
+| Apple versus Microsoft FY2025 revenue | Difference 134437 million USD; ranking placed Apple first |
+| Apple risk question | RAG answer citing filing evidence |
 
-### Agent v1 capabilities
+These are case observations, not an analysis accuracy benchmark.
 
-* Structured SQL generation and read-only SQLite execution
-* Bounded SQL self-repair through explicit generate, execute, repair, and failure nodes
-* Typed LangGraph state and conditional SQL/RAG routing
-* Structured Qwen routing and labeled routing benchmarks
-* AgentService composition through the FastAPI lifespan
-* RAG query-option propagation and ambiguity protection for unscoped multi-company RAG queries
-* `POST /agent/ask` with route-specific typed API responses
-* SQL task classification, raw analysis-data SQL generation and repair, typed planning, and deterministic analysis
+## Project structure
 
-## Tech Stack
-
-| Layer                    | Technology                            |
-| ------------------------ | ------------------------------------- |
-| API                      | FastAPI                               |
-| Language                 | Python 3.12                           |
-| PDF processing           | PyMuPDF                               |
-| Embeddings               | Sentence Transformers                 |
-| Baseline embedding model | `all-MiniLM-L6-v2`                    |
-| Vector database          | ChromaDB                              |
-| Local LLM                | Qwen3                                 |
-| Model runtime            | Ollama                                |
-| LLM client               | OpenAI-compatible Python SDK          |
-| Agent orchestration      | LangGraph                            |
-| Structured data backend  | Local SQLite                         |
-| Validation               | Pydantic + custom citation validation |
-| Retrieval evaluation     | Hit@K + MRR@20                        |
-| Testing                  | pytest                                |
-| CI                       | GitHub Actions                        |
-
-## API
-
-### Health Check
-
-```http
-GET /health
-```
-
-### Upload and Index a Financial Document
-
-```http
-POST /documents/upload
-```
-
-The upload endpoint accepts:
-
-* PDF file
-* company
-* ticker
-* fiscal year
-* document type
-
-Example:
-
-```bash
-curl -X POST "http://127.0.0.1:8000/documents/upload" \
-  -F "file=@annual-report.pdf" \
-  -F "company=Microsoft" \
-  -F "ticker=MSFT" \
-  -F "fiscal_year=2025" \
-  -F "document_type=10-K"
-```
-
-### Agent: Ask a Financial Question
-
-```http
-POST /agent/ask
-```
-
-JSON request fields:
-
-| Field | Type | Use |
-| --- | --- | --- |
-| `question` | string | Required, nonblank; at most 1,000 characters |
-| `top_k` | integer | RAG result limit; defaults to 5 (1–20) |
-| `company` | string or null | RAG company scope and ambiguity check |
-| `ticker` | string or null | RAG ticker scope and ambiguity check |
-| `fiscal_year` | integer or null | RAG metadata filter |
-| `document_type` | string or null | RAG metadata filter |
-
-Illustrative RAG request for narrative evidence:
-
-```json
-{
-  "question": "How does Apple describe supply chain risks in its 2025 filing?",
-  "company": "Apple",
-  "ticker": "AAPL",
-  "fiscal_year": 2025,
-  "document_type": "10-K",
-  "top_k": 5
-}
-```
-
-RAG response shape, using the existing source fields:
-
-```json
-{
-  "route": "rag",
-  "answer": "Apple describes supply chain disruption as a risk. [Source 1]",
-  "sources": [
-    {
-      "document": "apple.pdf",
-      "page": 12,
-      "chunk_index": 3,
-      "distance": 0.2,
-      "company": "Apple",
-      "ticker": "AAPL",
-      "fiscal_year": 2025,
-      "document_type": "10-K"
-    }
-  ]
-}
-```
-
-Illustrative SQL request for a structured metric (using a value in the local demo database):
-
-```json
-{
-  "question": "What was Apple's revenue in fiscal 2025?"
-}
-```
-
-SQL response shape; generated SQL may vary:
-
-```json
-{
-  "route": "sql",
-  "generated_sql": "SELECT revenue_musd FROM financial_metrics WHERE ticker = 'AAPL' AND fiscal_year = 2025",
-  "sql_result": {
-    "columns": ["revenue_musd"],
-    "rows": [{"revenue_musd": 416161.0}],
-    "row_count": 1
-  }
-}
-```
-
-Direct SQL keeps the response above, with no `analysis_result` field. Analysis SQL retains the raw rows and adds the calculated result. For example, using the two Apple revenue values from the live smoke test (generated SQL may vary):
-
-```json
-{
-  "route": "sql",
-  "generated_sql": "SELECT fiscal_year, revenue_musd FROM financial_metrics WHERE ticker = 'AAPL' AND fiscal_year IN (2024, 2025) ORDER BY fiscal_year",
-  "sql_result": {
-    "columns": ["fiscal_year", "revenue_musd"],
-    "rows": [
-      {"fiscal_year": 2024, "revenue_musd": 391035},
-      {"fiscal_year": 2025, "revenue_musd": 416161}
-    ],
-    "row_count": 2
-  },
-  "analysis_result": {
-    "operation": "percentage_change",
-    "value": 6.425511782832739,
-    "ranked_rows": []
-  }
-}
-```
-
-For `ranking`, `value` is `null` and `ranked_rows` contains the sorted rows. Those rows are immutable mappings inside `AnalysisResult`; the API converts them to ordinary JSON objects without changing the domain result. The SQL branch returns executed queries and rows rather than a narrative answer. After repair, `generated_sql` is the final SQL that executed successfully. API metadata fields filter RAG only; include required company and year details in the natural-language question for SQL.
-
-### Direct RAG Endpoint
-
-```http
-POST /rag/ask
-```
-
-Example:
-
-```bash
-curl -X POST "http://127.0.0.1:8000/rag/ask" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "What was total revenue in 2025?",
-    "ticker": "MSFT",
-    "fiscal_year": 2025,
-    "top_k": 5
-  }'
-```
-
-## Getting Started
-
-### 1. Clone the repository
-
-```bash
-git clone https://github.com/teacuppp/finresearch-ai.git
-cd finresearch-ai
-```
-
-### 2. Create a virtual environment
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-### 4. Install and prepare Ollama
-
-Install Ollama, then download the local model:
-
-```bash
-ollama pull qwen3:4b
-```
-
-Make sure the Ollama service is running.
-
-### 5. Initialize the local SQL demo database
-
-```bash
-python -m scripts.init_financial_db
-```
-
-This creates `data/financial_demo.db` with sample `financial_metrics` rows. Running the script again replaces that local demo database.
-
-### 6. Start the API
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Open Swagger UI:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-On the first run, Sentence Transformers may download the embedding model from Hugging Face.
-
-## Project Structure
-
-Selected implementation and evaluation files:
-
-```text
+~~~text
 finresearch-ai/
 ├── app/
-│   ├── agent/
-│   │   ├── graph.py
-│   │   ├── router.py
-│   │   ├── schema.py
-│   │   ├── sql_executor.py
-│   │   ├── sql_generator.py
-│   │   └── state.py
-│   ├── analysis/
-│   │   ├── financial_analyzer.py
-│   │   ├── intent.py
-│   │   └── planner.py
-│   ├── api/
-│   │   ├── agent.py
-│   │   ├── documents.py
-│   │   ├── filters.py
-│   │   └── rag.py
-│   ├── evaluation/
-│   │   ├── benchmark.py
-│   │   ├── models.py
-│   │   ├── retrieval_metrics.py
-│   │   ├── routing_benchmark.py
-│   │   └── routing_metrics.py
-│   ├── rag/
-│   │   ├── context.py
-│   │   ├── embeddings.py
-│   │   ├── generator.py
-│   │   ├── hybrid_retriever.py
-│   │   ├── ingestion.py
-│   │   ├── lexical_retriever.py
-│   │   ├── models.py
-│   │   ├── pipeline.py
-│   │   ├── reranker.py
-│   │   ├── retriever.py
-│   │   ├── splitter.py
-│   │   ├── validation.py
-│   │   └── vector_store.py
-│   ├── services/
-│   │   ├── agent_service.py
-│   │   ├── document_service.py
-│   │   ├── query_service.py
-│   │   └── rag_service.py
-│   ├── dependencies.py
+│   ├── agent/          # LangGraph, routing, SQL generation/execution
+│   ├── analysis/       # deterministic calculations and chart components
+│   ├── api/            # document, RAG, agent, and report routes
+│   ├── evaluation/     # benchmark loading and metrics
+│   ├── rag/            # ingestion, retrieval, reranking, generation
+│   ├── report/         # planning, research, synthesis, presentation, ZIP
+│   ├── services/       # application composition and service boundaries
 │   └── main.py
-├── evaluation/
-│   ├── retrieval_benchmark.json
-│   ├── routing_benchmark.json
-│   ├── routing_baseline_v1.txt
-│   ├── routing_challenge_v1.json
-│   └── routing_challenge_v1_baseline.txt
 ├── scripts/
-│   ├── debug_retrieval.py
-│   ├── evaluate_retrieval.py
-│   ├── evaluate_routing.py
 │   ├── init_financial_db.py
-│   └── inspect_document_chunks.py
-├── tests/                      # API, agent, analysis, RAG, SQL, and evaluation tests
-├── requirements.txt
-├── pytest.ini
+│   ├── smoke_report_live.py
+│   ├── evaluate_retrieval.py
+│   └── evaluate_routing.py
+├── evaluation/          # labeled retrieval and routing cases
+├── tests/
 └── README.md
-```
+~~~
 
-## Testing
+## Known limitations
 
-Run the complete test suite:
-
-```bash
-pytest
-```
-
-Run the retrieval benchmark:
-
-```bash
-python -m scripts.evaluate_retrieval
-```
-
-The tests cover:
-
-* document ingestion
-* text chunking
-* embeddings
-* vector storage
-* document replacement
-* metadata filtering
-* retrieval
-* ambiguity detection
-* RAG pipeline behavior
-* citation validation
-* answer repair
-* benchmark loading and validation
-* retrieval evaluation metrics
-* FastAPI endpoints
-* agent graph, router, and AgentService behavior
-* read-only SQL generation and execution
-* SQL analysis intent, raw-data generation and repair, planning, and deterministic calculations
-* route-specific agent API responses
-* routing benchmark loading and metrics
-
-GitHub Actions runs the test suite automatically for pushes and pull requests targeting `main`.
-
-## Engineering Decisions
-
-### Explicit RAG Components
-
-The retrieval pipeline is implemented through separate ingestion, embedding, vector-store, retrieval, context-building, generation, and validation layers.
-
-This keeps the underlying RAG mechanics visible and independently testable.
-
-AgentService and LangGraph call the existing QueryService and RAGPipeline rather than duplicating RAG logic in graph nodes.
-
-### Metadata-aware Retrieval
-
-Financial documents are indexed with structured metadata such as ticker and fiscal year.
-
-Chroma metadata filters restrict the candidate corpus before semantic retrieval.
-
-### Ambiguity Detection
-
-When multiple companies are indexed, a query that does not specify a company or ticker is rejected before RAG generation.
-
-This prevents the model from silently combining evidence across different entities.
-
-### Grounded Generation
-
-The generator is instructed to answer only from retrieved evidence and refuse unsupported questions rather than fabricate financial values.
-
-### Citation Guardrail
-
-Generated factual answers must contain source citations.
-
-Invalid responses trigger a single repair attempt before the API returns a controlled error.
-
-### Shared Model Lifecycle
-
-Embedding models and shared services are initialized through FastAPI lifespan rather than being recreated for every HTTP request.
-
-### Document Replacement
-
-Re-indexing a document removes its previous vector records before inserting the new version, preventing stale chunks from remaining in the collection.
-
-### Retrieval Benchmark
-
-Retrieval quality is measured independently from LLM generation.
-
-The benchmark uses manually labeled financial queries and relevant source chunks to make retrieval changes measurable and reproducible.
-
-This allows chunking, embeddings, hybrid retrieval, and reranking strategies to be compared against the same baseline rather than evaluated through anecdotal examples.
-
-### Read-only SQL and Bounded Self-repair
-
-After SQL classification, `generate_sql` calls `SQLGenerator.generate()` for direct questions, while `generate_analysis_data` calls `SQLGenerator.generate_analysis_data()` for analysis questions. Both initialize `sql_retry_count` to `0`, clear `sql_error`, and send the resulting query through the same `execute_sql` node. SQLExecutor applies read-only validation and opens the local SQLite database in read-only mode.
-
-If execution raises `SQLExecutionError`, the graph records the execution error in `sql_error` and checks the retry budget. Direct SQL uses `SQLGenerator.repair()`; analysis SQL uses `SQLGenerator.repair_analysis_data()`, whose prompt preserves raw input values and identifiers rather than calculating the final result. Both replace `generated_sql`, increment the shared `sql_retry_count`, clear `sql_error`, and return to `execute_sql`.
-
-`max_sql_retries` defaults to `2`. It counts repair attempts, so a request permits at most two repairs and three total SQL executions: the initial query plus two repaired queries. When that budget is exhausted, `sql_failure` raises `SQLExecutionError` with the final execution error. The graph never returns a partial SQL result.
-
-Every repaired query still passes SQLGenerator's existing read-only validation and SQLExecutor's validation and execution path. `SQLValidationError` is not retried or repaired, so forbidden write or administrative SQL cannot enter the recovery loop.
-
-After a successful analysis query, `AnalysisPlanner` receives the original question and raw `SQLQueryResult`. It selects the operation and source cells; `FinancialAnalyzer` performs the calculation or ranking. The final SQL response retains the raw rows alongside `AnalysisResult`.
-
-#### Controlled live smoke test
-
-A controlled live smoke test exercised one known column-name failure against the local `financial_metrics` database:
-
-```text
-Initial SQL:
-SELECT revenue FROM financial_metrics
-WHERE ticker = 'AAPL' AND fiscal_year = 2025
-
-SQLite error:
-no such column: revenue
-
-Repaired SQL:
-SELECT revenue_musd
-FROM financial_metrics
-WHERE ticker = 'AAPL' AND fiscal_year = 2025
-
-Result:
-revenue_musd = 416161
-sql_retry_count = 1
-```
-
-This verifies the controlled generate → execute → repair → execute path for that case. It is not a general SQL-repair accuracy benchmark.
-
-#### Live end-to-end agent smoke tests
-
-Live runs through the agent workflow and local demo data produced these observations:
-
-| Question or task | Route and observed result |
-| --- | --- |
-| Apple 2025 revenue | Direct SQL: `revenue_musd = 416161` |
-| Apple revenue percentage change, 2024 to 2025 | Analysis: raw `391035` and `416161`; `percentage_change ≈ 6.4255%` |
-| Apple revenue absolute change, 2024 to 2025 | Analysis: `25126` million USD |
-| Apple vs. Microsoft 2025 revenue difference | Analysis: `134437` million USD |
-| Rank Apple and Microsoft by 2025 revenue | Analysis: Apple before Microsoft |
-| Apple risk question | RAG: source-grounded filing evidence |
-
-These are live end-to-end smoke tests of selected cases, not an analysis or routing accuracy benchmark.
-
-## Known Limitations
-
-* Each request selects one route: RAG **or** SQL. Mixed-intent questions requiring both are not yet supported.
-* The SQL route does not consume API metadata filters as structured SQL constraints. Put required company and year information in the natural-language question.
-* SQLite remains the local structured-data backend.
-* Chart generation and report synthesis are not implemented.
-* There is no Databricks integration or persistence/checkpointing yet.
+- Inference depends on a running local Ollama service and available model context/memory. Reports remain model-dependent and can contain semantic errors despite evidence and citation checks.
+- SQL uses a local SQLite demo rather than Databricks or another enterprise data platform. The SQL route does not consume RAG API metadata filters as structured SQL constraints.
+- RAG and mixed reports need locally supplied and indexed filings; the small labeled retrieval benchmarks do not establish broad-domain performance.
+- POST /agent/ask selects one primary route. The report workflow supports multiple SQL and RAG tasks, but that does not make the single-question agent endpoint a general mixed-route API.
+- Reports are generated on demand. There is no production report persistence, background job queue, or report ID. The repository does not include a public hosted deployment or production authentication/security system.
 
 ## Roadmap
 
-1. [x] Add bounded SQL repair and retry in the graph.
-2. [x] Add direct/analysis SQL classification, raw-data SQL generation and repair, structured planning, and deterministic Python financial analysis.
-3. [ ] Support mixed RAG + SQL requests, chart generation, and report synthesis.
-4. [ ] Add structured SQL constraints for API metadata and explore Databricks integration and persistence/checkpointing.
-5. [ ] Continue expanding the retrieval benchmark and evaluating retrieval changes against it.
+Completed in this local implementation: document RAG and retrieval evaluation, LangGraph routing, read-only SQL analysis, chart rendering, grounded report generation, JSON report APIs, deterministic ZIP export, and the opt-in live demo.
 
-## Milestones
-
-### v0.2.0 — Multi-document Entity-aware Retrieval
-
-* Structured financial document metadata
-* Metadata-aware Chroma retrieval
-* Company / ticker / fiscal-year filtering
-* FastAPI RAG endpoint
-* Grounded generation with citations
-* Citation repair and controlled failures
-* Duplicate document replacement
-* Automated tests
-
-### Retrieval Engineering — Measured Ranking
-
-* Manually labeled financial retrieval benchmark
-* Hit@1, Hit@3, Hit@5, and MRR@20 metrics
-* Automated retrieval evaluator
-* Retrieval inspection utilities
-* Baseline retrieval measurements
-* Identification of chunk-boundary retrieval failures
-* Dense candidate retrieval followed by CrossEncoder reranking in production
-* Experimental BM25 and hybrid RRF retrieval
-
-### Agent v1 — RAG/SQL Routing
-
-* Structured Qwen3:4b routing into `rag` or `sql`
-* Typed LangGraph state, compiled conditional graph, and AgentService
-* Existing RAGPipeline reused through QueryService with scoped query options
-* Structured SQL generation and read-only local SQLite execution
-* Bounded SQL execution repair with two repair attempts by default
-* `POST /agent/ask` with distinct typed RAG and SQL responses
-* Two curated routing evaluations totaling 60/60 correct decisions
-
-### Python Financial Analysis — Completed
-
-* SQL task classification into direct or analysis mode within the existing SQL route
-* Raw analysis-data SQL generation and bounded analysis-specific repair
-* Structured `AnalysisPlanner` row/column selection
-* Deterministic `FinancialAnalyzer` operations: absolute change, percentage change, difference, and ranking
-* Typed `AnalysisResult` returned alongside raw SQL evidence from `POST /agent/ask`
-
-## Status
-
-FinResearch AI is under active development.
-
-Agent v1, bounded SQL repair, and the Python financial-analysis workflow are implemented. Mixed evidence workflows, charts, and reports remain future work; retrieval improvements continue to be evaluated against labeled evidence.
+Future possibilities include Databricks integration, deployment and authentication hardening, broader retrieval benchmarks, optional persistence and background jobs, and further reproducible demos. These are plans, not current capabilities.
