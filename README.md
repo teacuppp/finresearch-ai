@@ -119,6 +119,12 @@ The choices are `--scenario comparison|rag|mixed` and `--format json|zip|both`. 
 
 In `both` mode, JSON and ZIP requests generate reports independently inside one TestClient lifespan. The Markdown and ZIP bytes need not match across the two model runs. This smoke command is not part of CI.
 
+### Demo preview
+
+See one reviewed mixed SQL and filing example in the [demo notes](docs/demo/README.md) and [generated report](docs/demo/report.md).
+
+![Apple and Microsoft FY2025 reported revenue comparison](docs/demo/attachments/chart-sql_revenue_comparison.png)
+
 ## API examples
 
 All examples assume the local development API is running.
