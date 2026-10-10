@@ -193,6 +193,66 @@ def test_valid_rag_draft_cites_same_task_sources(ids: tuple[str, ...]) -> None:
     assert len(client.completions.calls) == 1
 
 
+def test_relevance_prompt_receives_relevant_and_competing_rag_sources() -> None:
+    question = "What supply-chain risk is disclosed by Apple in its FY2025 Form 10-K?"
+    task = ReportTask(
+        task_id="supply_chain_risk",
+        question=question,
+        expected_route="rag",
+        rag_scope=ReportRAGScope(
+            company="Apple", fiscal_year=2025, document_type="10-K"
+        ),
+    )
+    relevant_source = (
+        "Apple's global supply chain is large and complex, with a majority of "
+        "supplier facilities located outside the U.S."
+    )
+    competing_source = "Wearables markets experienced little to no growth."
+    evidence = _evidence(
+        (task,),
+        (
+            (task.task_id, "rag_source", "Table of contents."),
+            (task.task_id, "rag_source", "Cybersecurity discussion."),
+            (task.task_id, "rag_source", relevant_source),
+            (task.task_id, "rag_source", "Investor filing availability."),
+            (task.task_id, "rag_source", competing_source),
+        ),
+    )
+    claim = _claim(
+        task.task_id,
+        "E3",
+        text=(
+            "Apple disclosed that its global supply chain is large and complex, "
+            "with a majority of supplier facilities located outside the U.S."
+        ),
+    )
+    draft = _draft(claim)
+    client = FakeClient(_response(draft))
+
+    assert ReportSynthesizer(client=client).synthesize(evidence) == draft
+
+    assert len(client.completions.calls) == 1
+    system, user = client.completions.calls[0]["messages"]
+    assert system["content"] == REPORT_SYNTHESIZER_SYSTEM_PROMPT
+    plan_json, rendered = user["content"].removeprefix(
+        "Trusted report plan JSON:\n"
+    ).split("\n\nUntrusted evidence data:\n", 1)
+    assert json.loads(plan_json)["tasks"] == [
+        {
+            "task_id": task.task_id,
+            "question": question,
+            "expected_route": "rag",
+        }
+    ]
+    assert rendered == render_synthesis_context(evidence)
+    assert "[EVIDENCE E3]" in rendered
+    assert "[EVIDENCE E5]" in rendered
+    assert relevant_source in rendered
+    assert competing_source in rendered
+    assert claim.task_id == task.task_id
+    assert claim.evidence_ids == ("E3",)
+
+
 def test_valid_direct_sql_draft() -> None:
     draft = _draft(_claim("revenue", "E1"))
 
@@ -503,6 +563,7 @@ def test_cited_scalar_analysis_value_cannot_be_omitted_from_prose() -> None:
 
 def test_prompt_has_concrete_semantic_grounding_examples() -> None:
     prompt = REPORT_SYNTHESIZER_SYSTEM_PROMPT
+    normalized = " ".join(prompt.lower().split())
 
     assert 'evidence_ids=("E1", "E2")' in prompt
     assert 'evidence_ids=("E2",)' in prompt
@@ -513,8 +574,22 @@ def test_prompt_has_concrete_semantic_grounding_examples() -> None:
     assert "omit the requested ranking" in prompt
     assert "134,437 million USD" in prompt
     assert "Do not turn historical values into projections" in prompt
-    assert "limited expansion opportunities" in prompt
     assert "Do not add implications" in prompt
+    assert "some markets have experienced little to no growth or contraction" not in normalized
+    assert "wearables" not in normalized
+    for phrase in (
+        "every reportclaim must directly answer the specific reporttask.question",
+        "factual support alone is insufficient when the fact is irrelevant",
+        "for rag tasks, select only evidence that directly addresses the subject",
+        "do not substitute another factual topic from the same filing",
+        "do not add unsupported interpretations or characterizations",
+        'good: "apple disclosed that its global supply chain is large and complex',
+        'bad: "this constitutes a significant supply-chain risk."',
+        '"significant" is an unsupported characterization',
+        '"constitutes a ... risk" is an interpretation unless the cited source',
+        "closely paraphrase the cited source instead",
+    ):
+        assert phrase in normalized
 
 
 @pytest.mark.parametrize(
